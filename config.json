@@ -1,0 +1,21 @@
+{
+  "DEBUG_MODE": false,
+  "ffmpegDebug": false,
+  "aiCliTimeoutMs": 120000,
+  "caption_language": "English",
+  "faceEmojiScale": 1.05,
+  "visualSampleWithAudioIntervalMs": 2000,
+  "visualSampleWithoutAudioIntervalMs": 4000,
+  "visualSampleImageMaxLongEdge": 512,
+  "visualAiMaxFramesPerCall": 12,
+  "ai_cli_tools": [
+    { "name": "claude-code", "command": "claude", "supports_images": true },
+    { "name": "codex", "command": "codex", "supports_images": true },
+    { "name": "ollama", "command": "ollama", "model": "gemma4", "supports_images": false }
+  ],
+  "renderDefaults": {
+    "caption_style": "bold-white-bottom",
+    "caption_animation": "word-highlight",
+    "reframe": "letterbox-blur"
+  }
+}

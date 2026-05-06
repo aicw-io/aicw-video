@@ -1,0 +1,4 @@
+export const AICW_VIDEO_PRODUCT_NAME = "AICW Video";
+export const DEFAULT_FACE_EMOJI = "😎";
+export const DEFAULT_FACE_EMOJI_SCALE = 1.05;
+export const DEFAULT_FACE_EMOJI_FALLBACK_DIAMETER_NORM = 0.6;

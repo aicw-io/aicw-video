@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{TITLE}}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    h1 { font-size: 2rem; margin-bottom: 2rem; }
+    section { margin-bottom: 2.5rem; }
+    h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    .step-description { margin-bottom: 0.75rem; color: #333; }
+    img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+
+  </style>
+</head>
+<body>
+  <h1>{{TITLE}}</h1>
+{{LEDE}}
+<!--
+   Tutorial intro video. Replace YOUR_YOUTUBE_ID with the YouTube video ID
+       (the part after v= in a YouTube URL, e.g. dQw4w9WgXcQ).
+       Privacy/ad notes: youtube-nocookie domain delays cookies; rel=0 limits
+       related videos to same channel only (the public iframe API cannot fully
+       suppress them as of 2026); iv_load_policy=3 removes annotation overlays;
+       modestbranding=1 is deprecated but kept for older players.
+  <style>
+    .video-wrap { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; }
+    .video-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+  </style>
+  <div class="video-wrap">
+    <iframe
+      src="https://www.youtube-nocookie.com/embed/YOUR_YOUTUBE_ID?rel=0&amp;iv_load_policy=3&amp;modestbranding=1&amp;playsinline=1"
+      title="Tutorial video"
+      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen
+      loading="lazy"
+      referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  </div>
+-->
+{{STEPS}}
+</body>
+</html>

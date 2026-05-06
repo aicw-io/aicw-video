@@ -1,0 +1,6 @@
+## Step {{STEP_NUMBER}}: {{STEP_DESCRIPTION}}
+
+{{STEP_TEXT}}
+
+![{{STEP_ALT}}]({{STEP_IMAGE}})
+

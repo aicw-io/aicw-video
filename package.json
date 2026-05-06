@@ -1,0 +1,66 @@
+{
+  "name": "aicw-video",
+  "version": "1.0.0",
+  "description": "AICW Video is open-source toolkit with a CLI, MCP server, and web hub for turning videos into short clips for TikTok, Instagram, YouTube Shorts and other short video platforms.",
+  "type": "module",
+  "bin": {
+    "aicw-video": "dist/cli.js"
+  },
+  "scripts": {
+    "generate-assets": "tsc && node scripts/generate-face-emojis.mjs src/assets/face-emojis dist/assets/face-emojis",
+    "dev": "bin/dev",
+    "setup": "bash scripts/setup.sh",
+    "build": "rm -rf dist && tsc && node scripts/generate-face-emojis.mjs src/assets/face-emojis dist/assets/face-emojis && rm -rf dist/templates && cp -r src/templates dist/templates && mkdir -p dist/assets && cp -R src/assets/* dist/assets/ && tailwindcss -c tailwind.config.cjs -i src/styles/tailwind.css -o dist/assets/tailwind.css --minify && chmod +x dist/cli.js",
+    "start": "bin/start",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "video",
+    "ffmpeg",
+    "shorts",
+    "tiktok",
+    "tutorial",
+    "transcription",
+    "whisper",
+    "mcp",
+    "claude",
+    "ai-agent",
+    "captions"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aicw-io/aicw-video.git"
+  },
+  "homepage": "https://github.com/aicw-io/aicw-video#readme",
+  "bugs": {
+    "url": "https://github.com/aicw-io/aicw-video/issues"
+  },
+  "author": "AICW.io",
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@tensorflow/tfjs-backend-wasm": "4.22.0",
+    "@tensorflow/tfjs-converter": "4.22.0",
+    "@tensorflow/tfjs-core": "4.22.0",
+    "@vladmandic/human": "^3.3.6",
+    "node-addon-api": "^8.5.0",
+    "node-gyp": "^12.3.0",
+    "sharp": "^0.34.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tailwindcss": "3.4.17",
+    "typescript": "^5.7.0"
+  }
+}
