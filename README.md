@@ -40,6 +40,51 @@ https://github.com/user-attachments/assets/3d1a97e8-9a6f-44fb-80d6-7a58f453ebe6
 | `tensorflow` | (auto-installed as library) used for local faces detections
 | AI: Claude Code, Codex CLI or Ollama (can use local LLM), or an MCP-capable AI host (ChatGPT, Claude, Codex) | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
 
+## Install AICW Video
+
+### From Homebrew
+
+```bash
+brew install aicw-io/tap/aicw-video
+```
+
+This pulls ffmpeg and whisper-cpp as dependencies. Release runbook:
+[`docs/release/HOMEBREW.md`](docs/release/HOMEBREW.md).
+
+### From Source
+
+```bash
+git clone https://github.com/aicw-io/aicw-video
+cd aicw-video
+./scripts/setup.sh
+npm link
+```
+
+`scripts/setup.sh` is the recommended source install path. On macOS it installs
+missing system dependencies with Homebrew, installs npm dependencies, builds the
+app, and runs the preflight:
+
+```bash
+aicw-video doctor
+```
+
+The whisper model (`ggml-base.en.bin`, about 140 MB) downloads itself on first
+use into `~/.cache/aicw-video/`.
+
+If you do not want to link the command globally, run it from the clone:
+
+```bash
+node dist/cli.js doctor
+node dist/cli.js home
+```
+
+For source development, these scripts build and start the browser hub:
+
+```bash
+bin/dev
+bin/start
+```
+
 ## Start The App
 
 ```bash
@@ -105,51 +150,6 @@ Code, Codex, or another cloud-connected AI host for describing a video, sampled 
 snippets, and caption text may be sent to that provider by the host tool. 
 
 If you need full local AI only, then configure Ollama with local LLM like Qwen or Gemma (see below)
-
-## Install AICW Video
-
-### From Homebrew (after v1.0)
-
-```bash
-brew install aicw-io/tap/aicw-video
-```
-
-This pulls ffmpeg and whisper-cpp as dependencies. Release runbook:
-[`docs/release/HOMEBREW.md`](docs/release/HOMEBREW.md).
-
-### From Source
-
-```bash
-git clone https://github.com/aicw-io/aicw-video
-cd aicw-video
-./scripts/setup.sh
-npm link
-```
-
-`scripts/setup.sh` is the recommended source install path. On macOS it installs
-missing system dependencies with Homebrew, installs npm dependencies, builds the
-app, and runs the preflight:
-
-```bash
-aicw-video doctor
-```
-
-The whisper model (`ggml-base.en.bin`, about 140 MB) downloads itself on first
-use into `~/.cache/aicw-video/`.
-
-If you do not want to link the command globally, run it from the clone:
-
-```bash
-node dist/cli.js doctor
-node dist/cli.js home
-```
-
-For source development, these scripts build and start the browser hub:
-
-```bash
-bin/dev
-bin/start
-```
 
 ## Use AICW Video As MCP
 
