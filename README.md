@@ -5,21 +5,16 @@ captioned social clips.
 
 ## Features
 
-- **Create projects from folders** Add multiple videos and optional audio
-  tracks in one project.
-- **Match external audio** Automatically finds, syncs, and replaces a video's
-  audio with the matching separate recording.
-- **Suggest clips with AI** Analyzes videos and proposes short ranges to cut.
-- **Generate editable captions** Creates speech captions with multiple static
-  and word-highlight styles.
+- **Create projects from assorted video and audiot** Just drop multiple video files and their separately recorded audio tracks if any.
+- **Auto-matches audio tracks** Auto detects, matches and syncs audio to parent video.
+- **Auto-suggestes clips moments with AI** Analyzes videos to find key moments for short ranges to cut.
+- **Generates captions** Creates speech captions, previews them and renders to final video
 - **Caption silent videos** Uses AI scene analysis to describe videos without
   usable audio.
-- **Preview before rendering** Review each clip with captions, crop, face emoji,
-  and voice-over settings.
-- **Export social formats** Render TikTok, Instagram Reels, YouTube Shorts,
+- **Preview before rendering** Review each clip before rendering
+- **Export social formats** TikTok, Instagram Reels, YouTube Shorts,
   LinkedIn, Instagram feed, and YouTube landscape MP4s.
-- **Privacy tools** Blur detected faces, optionally cover them with emoji, and
-  replace clip audio with generated voice-over.
+- **Privacy tools** Blur or replace faces, replace original audio with generated voice-over.
 
 # Screenshots and demo  
 
@@ -40,69 +35,76 @@ https://github.com/user-attachments/assets/3d1a97e8-9a6f-44fb-80d6-7a58f453ebe6
 | macOS / Mac OS X | Primary supported platform today. Windows support is planned. |
 | 8 GB RAM or more | More RAM helps with longer source videos and parallel renders. |
 | Node.js 20+ | Runtime for the CLI, MCP server, and web hub. |
-| `ffmpeg` / `ffprobe` | Used for audio extraction, frame sampling, video probing, and rendering. |
+| `ffmpeg` / `ffprobe` | Used for local audio extraction, frame sampling, video probing, and rendering. |
 | `whisper-cpp` | Used for local speech transcription. |
-| Claude Code, Codex CLI, Ollama, or an MCP-capable AI host | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
+| `tensorflow` | (auto-installed as library) used for local faces detections
+| AI: Claude Code, Codex CLI or Ollama (can use local LLM), or an MCP-capable AI host (ChatGPT, Claude, Codex) | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
+
+## Start The App
+
+```bash
+aicw-video
+```
+
+The browser hub opens at `http://127.0.0.1:8764/`. From there you can create a
+project, add videos and audio tracks, analyze sources, open each video plan, and
+render clips.
+
+From a source checkout, `npm start` runs `bin/start`, which builds the app and
+starts the same browser hub.
+
+## Typical Workflow
+
+Files are stored in the AICW Video projects folder:
+
+```text
+~/aicw-video/projects/<project>/<video>/shorts/render-<timestamp>/
+```
+
+## Troubleshooting
+
+- **`aicw-video doctor` shows a missing `whisper-cli`:** install whisper.cpp
+  with `brew install whisper-cpp`.
+- **Hub says "error: Load failed" when opening a project:** first plan builds can
+  take a short while because AICW Video generates frame and caption-style
+  previews. Reopen after the build finishes.
+- **Port 8764 is busy:** the hub scans nearby ports. Check terminal output for
+  the actual URL.
+
+## Caveats
+
+- macOS is the supported platform today; Windows support is planned.
+- Per-clip voice-over is alpha, macOS-only today, and uses the system text-to-speech engine.
+- Caption preview in the plan UI is approximate; the final ffmpeg/libass render
+  is authoritative.
 
 ## How AI Is Used
 
-AICW Video can run without cloud AI for basic transcription, local face
-detection, face-focused crop hints, caption editing, and rendering. Speech
-transcription uses `whisper-cpp`; face detection runs locally through the
-JavaScript detector included with the app. It detects face regions for privacy
-overlays; it does not identify people.
+AICW Video is processing **locally** the following:
+- audio and video extraction
+- audio to text (via whisper local mode)
+- face detection (via local tensorflow, used for privacy features)
 
+Uses **cloud** but can also use **local** LLM: 
 When you enable AI scene analysis, AICW Video can use the AI tools you already
 have installed:
 
-- **Claude Code / Claude CLI**: used through `claude --print` in standalone
-  mode, or as an MCP host when AICW Video is connected to Claude Code.
-- **Codex CLI**: can be used from Codex through MCP, and can also be configured
-  as a standalone CLI fallback in `config.json`.
-- **Ollama**: can be configured as a local standalone text AI fallback in
+- **Claude Code / Claude CLI**: used through CLI
+- **Codex CLI**: can be used through CLI
+- **Ollama**: can be configured as a local AI fallback in
   `config.json`. The current built-in Ollama adapter is text-only, so visual
   frame descriptions still require Claude Code, Codex, or MCP host sampling.
-- **MCP host sampling**: when AICW Video runs as MCP, visual frame analysis and
-  caption proofreading use the parent app's model instead of spawning another
-  AI CLI.
+- **MCP host sampling**: you can add AICW Video to ChatGPT or Claude and call AICW Video from them.
 
-AI scene analysis is used for suggested clip ranges, keyframe labels,
-silent-video visual captions, and optional caption proofreading. If it is off,
-the app skips visual descriptions and uses Whisper plus local face detection.
+AI scene analysis is used for: suggested clip ranges, keyframe labels,
+silent-video visual captions, and optional caption proofreading. When it is off,
+the app skips visual descriptions and uses local Whisper plus local face detection.
 
-Privacy note: local face detection never needs cloud AI. When you use Claude
-Code, Codex, or another cloud-connected AI host, sampled frames, transcript
-snippets, and caption text may be sent to that provider by the host tool. When
-you use Ollama, that AI analysis runs through your local Ollama server.
+**Privacy note:** local face region detection never needs cloud AI. But note that when you use Claude
+Code, Codex, or another cloud-connected AI host for describing a video, sampled frames, transcript
+snippets, and caption text may be sent to that provider by the host tool. 
 
-### Advanced: Local Ollama
-
-Ollama is useful if you want a local AI fallback for text-only steps today, and
-it is the intended path for future local visual scene descriptions once the
-AICW Video Ollama adapter accepts image frames.
-
-```bash
-brew install ollama
-ollama serve
-ollama pull qwen3-vl:8b
-```
-
-`qwen3-vl` is a vision-language model in Ollama:
-<https://ollama.com/library/qwen3-vl>. For smaller machines, use a smaller tag
-such as `qwen3-vl:4b` or `qwen3-vl:2b`. Then edit `config.json` if you want
-Ollama to be the local text fallback:
-
-```json
-{
-  "ai_cli_tools": [
-    { "name": "ollama", "command": "ollama", "model": "qwen3-vl:8b", "supports_images": false }
-  ]
-}
-```
-
-Keep `supports_images` as `false` until image-capable Ollama support is added
-to AICW Video. Use Claude Code, Codex, or MCP host sampling for visual scene
-descriptions in the current release.
+If you need full local AI only, then configure Ollama with local LLM like Qwen or Gemma (see below)
 
 ## Install AICW Video
 
@@ -275,43 +277,35 @@ You can also open the setup hub, which shows copy-paste snippets:
 aicw-video home
 ```
 
-## Start The App
+
+### Advanced: Local Ollama
+
+Ollama is useful if you want a local AI fallback for text-only steps today, and
+it is the intended path for future local visual scene descriptions once the
+AICW Video Ollama adapter accepts image frames.
 
 ```bash
-aicw-video
+brew install ollama
+ollama serve
+ollama pull qwen3-vl:8b
 ```
 
-The browser hub opens at `http://127.0.0.1:8764/`. From there you can create a
-project, add videos and audio tracks, analyze sources, open each video plan, and
-render clips.
+`qwen3-vl` is a vision-language model in Ollama:
+<https://ollama.com/library/qwen3-vl>. For smaller machines, use a smaller tag
+such as `qwen3-vl:4b` or `qwen3-vl:2b`. Then edit `config.json` if you want
+Ollama to be the local text fallback:
 
-From a source checkout, `npm start` runs `bin/start`, which builds the app and
-starts the same browser hub.
-
-## Typical Workflow
-
-Files are stored in the AICW Video projects folder:
-
-```text
-~/aicw-video/projects/<project>/<video>/shorts/render-<timestamp>/
+```json
+{
+  "ai_cli_tools": [
+    { "name": "ollama", "command": "ollama", "model": "qwen3-vl:8b", "supports_images": false }
+  ]
+}
 ```
 
-## Troubleshooting
-
-- **`aicw-video doctor` shows a missing `whisper-cli`:** install whisper.cpp
-  with `brew install whisper-cpp`.
-- **Hub says "error: Load failed" when opening a project:** first plan builds can
-  take a short while because AICW Video generates frame and caption-style
-  previews. Reopen after the build finishes.
-- **Port 8764 is busy:** the hub scans nearby ports. Check terminal output for
-  the actual URL.
-
-## Caveats
-
-- macOS is the supported platform today; Windows support is planned.
-- Per-clip voice-over is alpha, macOS-only today, and uses the system text-to-speech engine.
-- Caption preview in the plan UI is approximate; the final ffmpeg/libass render
-  is authoritative.
+Keep `supports_images` as `false` until image-capable Ollama support is added
+to AICW Video. Use Claude Code, Codex, or MCP host sampling for visual scene
+descriptions in the current release.
 
 ## Contributing & License
 
