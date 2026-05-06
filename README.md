@@ -25,9 +25,8 @@ captioned social clips.
 
 **Screenshots**
 
-![Screenshot 1](docs/img/aicw-video-screenshot-1.png)
-![Screenshot 2](docs/img/aicw-video-screenshot-2.png)
-![Screenshot 3](docs/img/aicw-video-screenshot-3.png)
+| ![Screenshot 1](docs/img/aicw-video-screenshot-1.png) | ![Screenshot 2](docs/img/aicw-video-screenshot-2.png) | ![Screenshot 3](docs/img/aicw-video-screenshot-3.png) |
+|---|---|---|
 
 **Video Demo:**
 
