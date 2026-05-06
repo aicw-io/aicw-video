@@ -17,6 +17,8 @@
   },
   "files": [
     "dist/",
+    "config.json",
+    "docs/release/",
     "README.md",
     "LICENSE",
     "NOTICE.md"
@@ -46,7 +48,7 @@
     "url": "https://github.com/aicw-io/aicw-video/issues"
   },
   "author": "AICW.io",
-  "license": "AGPL-3.0",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tensorflow/tfjs-backend-wasm": "4.22.0",

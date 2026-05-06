@@ -48,8 +48,14 @@ https://github.com/user-attachments/assets/3d1a97e8-9a6f-44fb-80d6-7a58f453ebe6
 brew install aicw-io/tap/aicw-video
 ```
 
-This pulls ffmpeg and whisper-cpp as dependencies. Release runbook:
+Homebrew pulls Node.js, ffmpeg, and whisper-cpp as dependencies. Release runbook:
 [`docs/release/HOMEBREW.md`](docs/release/HOMEBREW.md).
+
+To install the development build from the upstream `main` branch:
+
+```bash
+brew install --HEAD aicw-io/tap/aicw-video
+```
 
 ### From Source
 

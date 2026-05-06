@@ -63,7 +63,7 @@ fi
 
 line "Installing app dependencies"
 cd "$ROOT"
-npm install
+SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm install
 npm run build
 
 line "Running preflight"
