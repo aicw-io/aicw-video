@@ -20,12 +20,14 @@ captioned social clips.
 
 **Screenshots**
 
-| ![Screenshot 1](docs/img/aicw-video-screenshot-1.png) | ![Screenshot 2](docs/img/aicw-video-screenshot-2.png) | ![Screenshot 3](docs/img/aicw-video-screenshot-3.png) |
-|---|---|---|
+![Screenshot 1](docs/img/aicw-video-screenshot-1.png)
+![Screenshot 2](docs/img/aicw-video-screenshot-2.png)
+
 
 **Video Demo:**
 
-https://github.com/user-attachments/assets/3d1a97e8-9a6f-44fb-80d6-7a58f453ebe6
+https://github.com/user-attachments/assets/0044971a-9da1-4b01-97d3-a0329eb3157f
+
 
 
 ## Requirements
