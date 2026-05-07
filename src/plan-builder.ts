@@ -1135,6 +1135,7 @@ function clipCardHtml(
     <input class="title-input" type="text" placeholder="Clip title" value="${escapeHtml(c.title)}">
     <span class="clip-summary" hidden></span>
     <button class="clip-render-btn" type="button" title="Render this clip">▶ Render…</button>
+    <button class="clip-export-tutorial-btn" type="button" title="Export this clip as an HTML and Markdown tutorial">Export tutorial</button>
     <button class="clip-settings-btn iconbtn-sm" type="button" title="Clip settings" aria-label="Clip settings"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg></button>
     <button class="clip-kebab-btn iconbtn-sm" type="button" title="More" aria-label="Clip actions" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg></button>
     <div class="clip-meta">
@@ -1144,7 +1145,6 @@ function clipCardHtml(
 
   <!-- Per-clip kebab menu (Delete, etc.) -->
   <div class="clip-kebab-pop" hidden role="menu">
-    <button class="clip-export-tutorial-btn" type="button" role="menuitem">Export as tutorial...</button>
     <button class="clip-delete-btn" type="button" role="menuitem">Delete clip…</button>
   </div>
   <div class="clip-tabs">
@@ -1666,6 +1666,9 @@ body.drawer-open .drawer{transform:translateX(0)}
 .clip-render-btn:hover:not(:disabled){filter:brightness(1.07)}
 .clip-render-btn:disabled{opacity:.55;cursor:wait}
 .clip-render-btn.busy{background:var(--accent);color:var(--ink)}
+.clip-export-tutorial-btn{appearance:none;background:var(--surface-2);color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:.45em .85em;font-weight:600;font-size:.85em;cursor:pointer;flex-shrink:0;transition:background .12s,color .12s,border-color .12s}
+.clip-export-tutorial-btn:hover:not(:disabled){background:var(--brand-soft);color:var(--brand);border-color:var(--brand)}
+.clip-export-tutorial-btn:disabled{opacity:.55;cursor:wait}
 /* Small icon-only buttons in the clip header (⚙ + ⋮) */
 .iconbtn-sm{appearance:none;background:var(--surface-2);color:var(--ink);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background .12s,color .12s,border-color .12s,box-shadow .12s}
 /* Clip-card collapse: chevron rotates, body + tabs hidden, title
