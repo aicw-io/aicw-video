@@ -138,11 +138,10 @@ use aicw-video to cut /path/to/video.mov into clips
 
 Claude Code can run the whole flow and return the output folder:
 
-<p>
-  <img src="docs/img/aicw-video-from-claude-1.png" alt="Claude Code creating and analyzing an AICW Video project" width="32%">
-  <img src="docs/img/aicw-video-from-claude-2.png" alt="Claude Code rendering captioned clips with AICW Video" width="32%">
-  <img src="docs/img/aicw-video-from-claude-3.png" alt="Rendered AICW Video clips in Finder" width="32%">
-</p>
+![Claude Code creating and analyzing an AICW Video project](docs/img/aicw-video-from-claude-1.png)
+![Claude Code rendering captioned clips with AICW Video](docs/img/aicw-video-from-claude-2.png)
+![Rendered AICW Video clips in Finder](docs/img/aicw-video-from-claude-3.png)
+
 
 ChatGPT Developer Mode currently documents remote MCP support, not local stdio
 commands: <https://platform.openai.com/docs/guides/developer-mode>.
