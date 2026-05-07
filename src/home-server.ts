@@ -2485,7 +2485,7 @@ function renderProjectV2(p){
           '<div class="v2-vc-rows">' + rows.join('') + '</div>' +
           '<span class="v2-vc-launch-status"></span>' +
           '<div class="v2-vc-actions">' +
-            '<button class="v2-vc-action v2-vc-create-tutorial" type="button">Export as tutorial...</button>' +
+            '<button class="v2-vc-action v2-vc-create-tutorial" type="button">Export tutorial</button>' +
             '<button class="v2-vc-action v2-vc-open-tutorial" type="button" data-tutorial-name="' + escapeHtmlClient(latestTutorialName) + '"' + (latestTutorialName ? '' : ' hidden') + '>Open folder</button>' +
           '</div>' +
         '</div>' +
