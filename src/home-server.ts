@@ -1,6 +1,6 @@
 import { createServer, type Server, type ServerResponse, type IncomingMessage } from "node:http";
 import { spawn } from "node:child_process";
-import { existsSync, statSync, createReadStream, createWriteStream } from "node:fs";
+import { existsSync, statSync, createReadStream, createWriteStream, readFileSync } from "node:fs";
 import { readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -791,6 +791,25 @@ function shellQuoteForDisplay(p: string): string {
   return "'" + String(p || "").replace(/'/g, "'\\''") + "'";
 }
 
+const FALLBACK_SKILL_BODY = `---
+name: aicw-video
+description: Use AICW Video to turn local video/audio files into short clips, captions, rendered social videos, or step-by-step tutorials through the aicw-video MCP tools and local review hub.
+---
+
+# AICW Video
+
+Use the aicw-video MCP tools to create projects, analyze local video/audio, open the review hub, edit clip plans, render clips, and export tutorials. Prefer the review hub over manual ffmpeg commands.
+`;
+
+function loadBundledSkillBody(): string {
+  const bundledSkillPath = path.resolve(RUNTIME_DIR, "..", "skills", "aicw-video", "SKILL.md");
+  try {
+    return readFileSync(bundledSkillPath, "utf8");
+  } catch {
+    return FALLBACK_SKILL_BODY;
+  }
+}
+
 function renderHomeHtml(args: {
   projects: ProjectSummary[];
   cliPath: { full: string; isGlobal: boolean; cliPath: string };
@@ -833,32 +852,7 @@ function renderHomeHtml(args: {
   // ~/.claude/skills/aicw-video/ so any Claude Code session can invoke it
   // via /aicw-video. Pairs with (does not replace) the MCP registration.
   const skillPath = `${process.env.HOME ?? "~"}/.claude/skills/aicw-video/SKILL.md`;
-  const skillBody = `---
-name: aicw-video
-description: Plan and render short-form video clips from local video files via the aicw-video MCP tools. Trigger on requests like "use aicw-video to plan clips from video at X", "make shorts from this recording", or "analyze this recording".
----
-
-# aicw-video
-
-Use the aicw-video MCP tools to drive the full pipeline: create_project → analyze_project → review_project → get_clip_plan/save_clip_plan → render_clip or render_all_clips. Default project location: \`~/aicw-video/projects/<slug>\`.
-
-## When to use
-- The user gives a local path to a video and wants short-form clips, captions, or a tutorial.
-- The user mentions a screen recording or local mp4/mov they want to break into pieces.
-
-## Workflow
-1. Call \`create_project\` with the local video/audio files.
-2. Call \`analyze_project\` to describe sources, match audio, prepare per-video folders, and create clip plans.
-3. Call \`review_project\` and give the user the returned local review link. Set \`includePreviewImages\` only when a quick visual thumbnail in chat is useful.
-4. Call \`get_clip_plan\` to inspect the generated plan. Use \`save_clip_plan\` only when the user asks for edits.
-5. For tutorial output, call \`export_clip_tutorial\` for the selected clip.
-6. Tell the user to use the hub review page to adjust ranges, edit captions, pick a style, and hit "Make clips" to render.
-
-## Conventions
-- Caption text per clip is anchored to source-timed analysis points; the renderer uses real timestamps.
-- Don't re-run analysis if the project already has \`analysis/moments.json\` unless the user asks.
-- For "update plan" requests, read the existing plan.json and patch only what the user asked to change.
-`;
+  const skillBody = loadBundledSkillBody();
 
   // Each project is a YouTube-style tile: thumbnail (or initials placeholder),
   // title, subtitle (modified time + status hint).
