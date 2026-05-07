@@ -166,6 +166,12 @@ create projects from video/audio files, analyze them, and return a local review
 link. ChatGPT custom apps currently require a remote MCP server URL, so the
 local stdio server is not directly usable from ChatGPT yet.
 
+Print host-specific setup snippets at any time:
+
+```bash
+aicw-video setup-mcp
+```
+
 ### Claude Code
 
 From a source checkout:

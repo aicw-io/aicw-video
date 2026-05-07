@@ -135,11 +135,11 @@ args = ["${cli}", "mcp"]`);
 
 function printChatGPT(): void {
   console.log(`\n${bold("ChatGPT Desktop")}\n`);
-  console.log(`ChatGPT Desktop's MCP support is build-dependent. Check Settings →`);
-  console.log(`Connectors / Developer Mode. If present, the JSON shape matches Claude`);
-  console.log(`Desktop's:`);
-  printClaudeDesktop();
-  console.log(`\n${dim("If not available in your build, use Codex CLI (option 3 in Setup).")}`);
+  console.log(`ChatGPT Developer Mode currently imports remote MCP servers using SSE`);
+  console.log(`or streaming HTTP. AICW Video currently exposes local stdio MCP:`);
+  console.log(`\n  node ${cliBin()} mcp\n`);
+  console.log(`Do not paste that command into ChatGPT's remote MCP URL field.`);
+  console.log(`For OpenAI workflows today, use Codex CLI (option 3 in Setup).`);
 }
 
 // ─── Open project submenu ───────────────────────────────────────────

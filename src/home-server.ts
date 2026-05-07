@@ -806,7 +806,6 @@ function renderHomeHtml(args: {
     null,
     2,
   );
-  const chatgptJson = claudeDesktopJson; // ChatGPT desktop uses the same shape.
   const projectsOpenCommand = `open ${shellQuoteForDisplay(projectsRoot())}`;
   // OpenClaw (https://docs.openclaw.ai) is a self-hosted MCP-capable local
   // agent. Servers are registered under mcp.servers.<name> with a familiar
@@ -1650,21 +1649,16 @@ body.drawer-open .drawer{transform:translateX(0)}
 
   <section class="tab-panel" data-panel="chatgpt">
     <h3 class="tab-h">Install</h3>
-    <p class="step">Requires an MCP-capable ChatGPT Desktop build.</p>
-    <p class="step">1. Open ChatGPT Desktop → <strong>Settings → Connectors / MCP</strong>.</p>
-    <p class="step">2. Add a new server with:</p>
-    <ul class="kv">
-      <li><strong>Name:</strong> <code>aicw-video</code></li>
-      <li><strong>Command:</strong> <code>${escapeHtml(cmdInvocation.command)}</code></li>
-      <li><strong>Arguments:</strong> <code>${escapeHtml(cmdInvocation.args.join(" "))}</code></li>
-    </ul>
-    <p class="step">Or paste this JSON if your build accepts a config file:</p>
+    <p class="step">ChatGPT Developer Mode currently imports remote MCP servers using SSE or streaming HTTP.</p>
+    <p class="step">AICW Video currently exposes a local stdio MCP server:</p>
     <div class="copy-row">
-      <pre id="snippet-cg">${escapeHtml(chatgptJson)}</pre>
+      <pre id="snippet-cg">${escapeHtml(args.cliPath.full)}</pre>
       <button class="copy-btn" data-copy-target="snippet-cg">Copy</button>
     </div>
+    <p class="step">Do not paste that command into ChatGPT's remote MCP URL field.</p>
+    <p class="step">For OpenAI local-MCP workflows today, use the Codex tab. Once AICW Video has an HTTP MCP mode, create a ChatGPT app/connector from that HTTPS MCP URL.</p>
     <h3 class="tab-h">Use it</h3>
-    <p class="step">In a ChatGPT chat, type:</p>
+    <p class="step">In Codex, type:</p>
     <div class="copy-row">
       <pre id="use-cg">use aicw-video to plan clips from video at &lt;local-path&gt;</pre>
       <button class="copy-btn" data-copy-target="use-cg">Copy</button>
