@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { resolveProject, sourceVideoPath } from "./projectFolder.js";
 import { ok, bad, dim, step, heading } from "./colors.js";
+import { getFfprobePath } from "./ffmpeg.js";
 
 export async function runStatus(projectPath: string): Promise<void> {
   const root = await resolveProject(projectPath);
@@ -81,7 +82,7 @@ async function checkArtifact(root: string, rel: string, label: string): Promise<
 async function probeDurationMs(videoPath: string): Promise<number> {
   return new Promise((resolve) => {
     let out = "";
-    const p = spawn(process.env.FFPROBE_PATH || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nokey=1:noprint_wrappers=1", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
+    const p = spawn(getFfprobePath(), ["-v", "error", "-show_entries", "format=duration", "-of", "default=nokey=1:noprint_wrappers=1", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
     p.stdout.on("data", (d) => { out += d.toString(); });
     p.on("error", () => resolve(0));
     p.on("exit", () => resolve(Math.round(parseFloat(out.trim() || "0") * 1000)));
@@ -91,7 +92,7 @@ async function probeDurationMs(videoPath: string): Promise<number> {
 async function probeDims(videoPath: string): Promise<string> {
   return new Promise((resolve) => {
     let out = "";
-    const p = spawn(process.env.FFPROBE_PATH || "ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
+    const p = spawn(getFfprobePath(), ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
     p.stdout.on("data", (d) => { out += d.toString(); });
     p.on("error", () => resolve("?"));
     p.on("exit", () => resolve(out.trim().replace(",", "×") || "?"));
@@ -101,7 +102,7 @@ async function probeDims(videoPath: string): Promise<string> {
 async function streamHas(videoPath: string, spec: "a" | "v"): Promise<boolean> {
   return new Promise((resolve) => {
     let out = "";
-    const p = spawn(process.env.FFPROBE_PATH || "ffprobe", ["-v", "error", "-select_streams", spec, "-show_entries", "stream=index", "-of", "csv=p=0", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
+    const p = spawn(getFfprobePath(), ["-v", "error", "-select_streams", spec, "-show_entries", "stream=index", "-of", "csv=p=0", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
     p.stdout.on("data", (d) => { out += d.toString(); });
     p.on("error", () => resolve(false));
     p.on("exit", () => resolve(out.trim().length > 0));

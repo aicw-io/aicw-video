@@ -2,6 +2,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { runProc } from "./run.js";
+import { getFfmpegPath } from "./ffmpeg.js";
 
 export type TtsVoice = {
   id: string;
@@ -65,7 +66,7 @@ export const macosSayTtsEngine: TtsEngine = {
 
     try {
       await runProc(SAY_BIN, sayArgs);
-      await runProc(process.env.FFMPEG_PATH || "ffmpeg", [
+      await runProc(getFfmpegPath(), [
         "-y",
         "-i", aiffPath,
         "-ac", "1",
@@ -156,7 +157,7 @@ async function mixVoiceoverSegments(
   durationMs: number,
   outPath: string,
 ): Promise<void> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   const durationSec = (Math.max(1, durationMs) / 1000).toFixed(3);
   const args: string[] = [
     "-y",

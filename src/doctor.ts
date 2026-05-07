@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { c, ok, bad, warn, dim, heading } from "./colors.js";
 import { aiCliAvailable, configuredAiCliToolLabels, firstAvailableAiCliToolLabel, preflightAiCliTools } from "./llm/index.js";
+import { getFfmpegPath, getFfprobePath, resolveFfmpegPath } from "./ffmpeg.js";
 
 type CheckResult = { name: string; pathFound?: string; version?: string; ok: boolean; install?: string };
 
@@ -14,12 +15,21 @@ export async function runDoctor(): Promise<{ allOk: boolean }> {
   console.log(heading("Required tools"));
   const required: CheckResult[] = await Promise.all([
     checkTool("node", ["--version"], /v([\d.]+)/),
-    checkTool("ffmpeg", ["-version"], /ffmpeg version (\S+)/, "brew install ffmpeg"),
-    checkTool("ffprobe", ["-version"], /ffprobe version (\S+)/, "brew install ffmpeg"),
+    checkBinary("ffmpeg", getFfmpegPath(), ["-version"], /ffmpeg version (\S+)/, "brew install ffmpeg-full"),
+    checkBinary("ffprobe", getFfprobePath(), ["-version"], /ffprobe version (\S+)/, "brew install ffmpeg-full"),
     checkTool("whisper-cli", ["--help"], /usage:\s*([^\s]+)|whisper\.cpp/i, "brew install whisper-cpp"),
     checkTool("curl", ["--version"], /curl (\S+)/),
   ]);
   for (const r of required) printCheck(r);
+  let renderCaptionsOk = false;
+  try {
+    const renderFfmpeg = await resolveFfmpegPath({ requiredFilters: ["subtitles"] });
+    renderCaptionsOk = true;
+    console.log(ok(`ffmpeg subtitles ${dim(`libass filter · ${renderFfmpeg}`)}`));
+  } catch (e) {
+    console.log(bad(`ffmpeg subtitles libass filter unavailable`));
+    console.log(`              ${dim(e instanceof Error ? e.message : String(e))}`);
+  }
 
   console.log(`\n${heading("Voice-over (Alpha, opt-in)")}`);
   if (process.platform === "darwin") {
@@ -31,7 +41,7 @@ export async function runDoctor(): Promise<{ allOk: boolean }> {
   }
 
   console.log(`\n${heading("Optional capabilities")}`);
-  const enc = await captureProcess("ffmpeg", ["-hide_banner", "-encoders"]);
+  const enc = await captureProcess(getFfmpegPath(), ["-hide_banner", "-encoders"]);
   if (enc.includes("h264_videotoolbox")) {
     console.log(ok(`h264_videotoolbox encoder ${dim("(Apple Silicon hardware encoding — fast)")}`));
   } else if (process.platform === "darwin") {
@@ -80,7 +90,7 @@ export async function runDoctor(): Promise<{ allOk: boolean }> {
     console.log(warn(`no configured AI CLI tool is available — edit config.json ai_cli_tools, install Claude Code/Codex/Ollama, or run \`aicw-video mcp\` and let your AI host drive.`));
   }
 
-  const allOk = required.every((r) => r.ok);
+  const allOk = required.every((r) => r.ok) && renderCaptionsOk;
   console.log("");
   if (allOk) console.log(ok(`all required tools available — you're ready to go`));
   else console.log(bad(`one or more required tools missing — install the listed packages and re-run ${dim("aicw-video doctor")}`));
@@ -94,22 +104,31 @@ export async function runDoctor(): Promise<{ allOk: boolean }> {
 export async function silentPreflight(): Promise<{ allOk: boolean; missing: string[] }> {
   const required = await Promise.all([
     checkTool("node", ["--version"], /v([\d.]+)/),
-    checkTool("ffmpeg", ["-version"], /ffmpeg version (\S+)/, "brew install ffmpeg"),
-    checkTool("ffprobe", ["-version"], /ffprobe version (\S+)/, "brew install ffmpeg"),
+    checkBinary("ffmpeg", getFfmpegPath(), ["-version"], /ffmpeg version (\S+)/, "brew install ffmpeg-full"),
+    checkBinary("ffprobe", getFfprobePath(), ["-version"], /ffprobe version (\S+)/, "brew install ffmpeg-full"),
     checkTool("whisper-cli", ["--help"], /usage:\s*([^\s]+)|whisper\.cpp/i, "brew install whisper-cpp"),
     checkTool("curl", ["--version"], /curl (\S+)/),
   ]);
   const missing = required.filter((r) => !r.ok).map((r) => r.name);
+  try {
+    await resolveFfmpegPath({ requiredFilters: ["subtitles"] });
+  } catch {
+    missing.push("ffmpeg subtitles filter");
+  }
   return { allOk: missing.length === 0, missing };
 }
 
 async function checkTool(name: string, args: string[], versionRe?: RegExp, install?: string): Promise<CheckResult> {
-  const where = await captureProcess("which", [name]);
+  return checkBinary(name, name, args, versionRe, install);
+}
+
+async function checkBinary(name: string, command: string, args: string[], versionRe?: RegExp, install?: string): Promise<CheckResult> {
+  const where = path.isAbsolute(command) ? (existsSync(command) ? command : "") : await captureProcess("which", [command]);
   const found = where.trim();
   if (!found) return { name, ok: false, install };
   let version: string | undefined;
   try {
-    const out = await captureProcess(name, args);
+    const out = await captureProcess(command, args);
     if (versionRe) {
       const m = out.match(versionRe);
       if (m && m[1]) version = m[1];

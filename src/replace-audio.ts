@@ -6,6 +6,7 @@ import { runProc } from "./run.js";
 import { getOrTranscribeWords, type Word } from "./transcript-cache.js";
 import { findMatchInRange, harvestAnchors, matchPhrase, type Anchor } from "./transcript-match.js";
 import { refineAnchorOffsets, type XcorrSample } from "./audio-xcorr.js";
+import { getFfmpegPath } from "./ffmpeg.js";
 
 export type { Word, Anchor };
 
@@ -359,7 +360,7 @@ async function muxAlignedAudio(
   atempoFactor: number | null,
   outPath: string,
 ): Promise<void> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   // Build the audio filter chain:
   //   atrim/adelay → atempo (drift correction) → apad
   //   - offset > 0: external started after video, trim its front.

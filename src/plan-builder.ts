@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { resolveProject, sourceVideoPath } from "./projectFolder.js";
 import { suggestClips } from "./suggest.js";
 import { runProc } from "./run.js";
+import { getFfmpegPath, getFfprobePath, resolveFfmpegPath } from "./ffmpeg.js";
 import { ASS_STYLES, fmtAssTs, normalizeCaptionStyle, targetDims, type Point } from "./shorts.js";
 import { config } from "./config.js";
 import {
@@ -593,7 +594,7 @@ function bucketCaptions(
 }
 
 async function probeDurationMs(videoPath: string): Promise<number> {
-  const ffprobe = process.env.FFPROBE_PATH || "ffprobe";
+  const ffprobe = getFfprobePath();
   return new Promise((resolve, reject) => {
     let out = "";
     const p = spawn(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "default=nokey=1:noprint_wrappers=1", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
@@ -607,7 +608,7 @@ async function probeDurationMs(videoPath: string): Promise<number> {
 }
 
 async function renderClipFrames(src: string, c: Suggestion, n: number, videoRoot: string): Promise<string[]> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   const sig = srcSignature(src);
   const dur = c.end_ms - c.start_ms;
   const frames: string[] = [];
@@ -678,7 +679,7 @@ Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,,${safe}
     const assPath = `${p}.ass`;
     await writeFile(assPath, ass);
 
-    const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+    const ffmpeg = await resolveFfmpegPath({ requiredFilters: ["subtitles"] });
     const filterComplex =
       `[0:v]scale=${dims.w}:${dims.h}:force_original_aspect_ratio=increase,crop=${dims.w}:${dims.h},subtitles=${escapeFilterPath(assPath)}[v]`;
     await runProc(ffmpeg, [

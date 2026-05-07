@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { resolveProject, sourceVideoPath } from "./projectFolder.js";
+import { getFfmpegPath, getFfprobePath } from "./ffmpeg.js";
 
 export type Suggestion = {
   id: string;
@@ -126,7 +127,7 @@ function formatTime(s: number): string {
 }
 
 async function probeDurationMs(videoPath: string): Promise<number> {
-  const ffprobe = process.env.FFPROBE_PATH || "ffprobe";
+  const ffprobe = getFfprobePath();
   return new Promise((resolve, reject) => {
     let out = "";
     const p = spawn(
@@ -144,7 +145,7 @@ async function probeDurationMs(videoPath: string): Promise<number> {
 }
 
 async function detectScenes(videoPath: string): Promise<number[]> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   return new Promise((resolve, reject) => {
     let err = "";
     const p = spawn(

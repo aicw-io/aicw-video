@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/3d1a97e8-9a6f-44fb-80d6-7a58f453ebe6
 | macOS / Mac OS X | Primary supported platform today. Windows support is planned. |
 | 8 GB RAM or more | More RAM helps with longer source videos and parallel renders. |
 | Node.js 20+ | Runtime for the CLI, MCP server, and web hub. |
-| `ffmpeg` / `ffprobe` | Used for local audio extraction, frame sampling, video probing, and rendering. |
+| `ffmpeg-full` / `ffprobe` | Used for local audio extraction, frame sampling, video probing, and rendering. Caption rendering requires ffmpeg's libass/subtitles filter. |
 | `whisper-cpp` | Used for local speech transcription. |
 | `tensorflow` | (auto-installed as library) used for local faces detections
 | AI: Claude Code, Codex CLI or Ollama (can use local LLM), or an MCP-capable AI host (ChatGPT, Claude, Codex) | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
@@ -48,7 +48,7 @@ https://github.com/user-attachments/assets/3d1a97e8-9a6f-44fb-80d6-7a58f453ebe6
 brew install aicw-io/tap/aicw-video
 ```
 
-Homebrew pulls Node.js, ffmpeg, and whisper-cpp as dependencies. Release runbook:
+Homebrew pulls Node.js, ffmpeg-full, and whisper-cpp as dependencies. Release runbook:
 [`docs/release/HOMEBREW.md`](docs/release/HOMEBREW.md).
 
 To install the development build from the upstream `main` branch:

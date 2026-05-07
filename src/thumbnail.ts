@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveProject, sourceVideoPath } from "./projectFolder.js";
 import { runProc } from "./run.js";
 import { PlanSchema, targetDims, type Clip, type Plan } from "./shorts.js";
+import { resolveFfmpegPath } from "./ffmpeg.js";
 
 export async function renderThumbnail(projectPath: string, clipId: string): Promise<string> {
   const { root, plan } = await loadPlan(projectPath);
@@ -44,7 +45,7 @@ async function renderThumbnailAt(root: string, clip: Clip, num: number): Promise
   const midSec = (((clip.start_ms + clip.end_ms) / 2) / 1000).toFixed(3);
   const filterComplex = buildThumbnailFilter(clip, dims, assPath);
 
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = await resolveFfmpegPath({ requiredFilters: ["subtitles"] });
   await runProc(ffmpeg, [
     "-y",
     "-ss", midSec, "-i", src,
