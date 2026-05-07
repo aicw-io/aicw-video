@@ -84,6 +84,9 @@ ${bold("AI steps (standalone — uses configured ai_cli_tools fallback chain)")}
 
 ${bold("Server")}
   mcp                                       MCP server on stdio (default if no args).
+  setup-mcp                                 Print MCP setup snippets for
+                                            Claude Code, Claude Desktop,
+                                            Codex, and ChatGPT.
   setup-claude-code                         Print the 'claude mcp add ...' command
                                             to register this build with Claude Code.
   setup-claude-desktop                      Print the JSON snippet for
@@ -232,29 +235,31 @@ async function main(): Promise<void> {
       return;
     }
     case "setup-claude-code": {
-      const cliPath = path.resolve(process.argv[1] || "");
       console.log(bold("Register aicw-video with Claude Code:") + "\n");
-      console.log(`  claude mcp add aicw-video -- node ${cliPath} mcp`);
+      printClaudeCodeMcpSetup();
       console.log("\n" + dim("Then in any Claude Code session: \"use aicw-video to ...\""));
       console.log(dim("Verify it landed:        claude mcp list"));
       console.log(dim("Remove it:               claude mcp remove aicw-video"));
       return;
     }
     case "setup-claude-desktop": {
-      const cliPath = path.resolve(process.argv[1] || "");
-      const snippet = {
-        mcpServers: {
-          "aicw-video": {
-            command: "node",
-            args: [cliPath, "mcp"],
-          },
-        },
-      };
       console.log(bold("Add aicw-video to Claude Desktop:") + "\n");
       console.log(dim(`  edit  ~/Library/Application Support/Claude/claude_desktop_config.json`));
       console.log(dim("  merge in:") + "\n");
-      console.log(JSON.stringify(snippet, null, 2));
+      console.log(JSON.stringify(claudeDesktopMcpSnippet(), null, 2));
       console.log("\n" + dim("Quit Claude Desktop with ⌘Q (not just close window) and relaunch."));
+      return;
+    }
+    case "setup-codex": {
+      printCodexMcpSetup();
+      return;
+    }
+    case "setup-chatgpt": {
+      printChatGptMcpSetup();
+      return;
+    }
+    case "setup-mcp": {
+      printAllMcpSetup();
       return;
     }
     case "analyze": {
@@ -390,6 +395,85 @@ async function runHome(): Promise<void> {
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
   });
+}
+
+function mcpInvocation(): { command: string; args: string[]; display: string } {
+  const cliPath = path.resolve(process.argv[1] || "");
+  const isGlobal = !cliPath.endsWith(".js") || cliPath.includes("/node_modules/.bin/");
+  if (isGlobal) {
+    return { command: "aicw-video", args: ["mcp"], display: "aicw-video mcp" };
+  }
+  return { command: "node", args: [cliPath, "mcp"], display: `node ${shellQuote(cliPath)} mcp` };
+}
+
+function shellQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+function claudeDesktopMcpSnippet(): { mcpServers: Record<string, { command: string; args: string[] }> } {
+  const invocation = mcpInvocation();
+  return {
+    mcpServers: {
+      "aicw-video": {
+        command: invocation.command,
+        args: invocation.args,
+      },
+    },
+  };
+}
+
+function printClaudeCodeMcpSetup(): void {
+  console.log(`  claude mcp add aicw-video -- ${mcpInvocation().display}`);
+}
+
+function printCodexMcpSetup(): void {
+  const invocation = mcpInvocation();
+  console.log(bold("Add aicw-video to Codex CLI:") + "\n");
+  console.log(dim("  edit  ~/.codex/config.toml"));
+  console.log(dim("  add:") + "\n");
+  console.log(`[mcp_servers.aicw-video]
+command = "${invocation.command}"
+args = ${JSON.stringify(invocation.args)}`);
+  console.log("\n" + dim("Restart Codex, then ask: \"Use aicw-video MCP. Call list_projects.\""));
+}
+
+function printChatGptMcpSetup(): void {
+  const invocation = mcpInvocation();
+  console.log(bold("ChatGPT Desktop / ChatGPT Developer Mode:") + "\n");
+  console.log("AICW Video currently exposes a local stdio MCP server:");
+  console.log(`  ${invocation.display}`);
+  console.log("");
+  console.log("ChatGPT Developer Mode currently imports remote MCP servers using SSE or streaming HTTP.");
+  console.log("Do not paste the local stdio command into ChatGPT's remote MCP URL field.");
+  console.log("");
+  console.log("For OpenAI local-MCP workflows today, use Codex CLI with:");
+  console.log(`[mcp_servers.aicw-video]
+command = "${invocation.command}"
+args = ${JSON.stringify(invocation.args)}`);
+  console.log("Once AICW Video has an HTTP MCP mode, use ChatGPT Settings -> Apps/Connectors -> Developer Mode and add that HTTPS MCP URL.");
+}
+
+function printAllMcpSetup(): void {
+  const invocation = mcpInvocation();
+  console.log(bold("AICW Video MCP server command:") + "\n");
+  console.log(`  ${invocation.display}`);
+
+  console.log("\n" + bold("Claude Code") + "\n");
+  printClaudeCodeMcpSetup();
+  console.log(dim("  verify: claude mcp list"));
+  console.log(dim("  remove: claude mcp remove aicw-video"));
+
+  console.log("\n" + bold("Claude Desktop") + "\n");
+  console.log(dim("  edit  ~/Library/Application Support/Claude/claude_desktop_config.json"));
+  console.log(dim("  merge in:") + "\n");
+  console.log(JSON.stringify(claudeDesktopMcpSnippet(), null, 2));
+  console.log(dim("\n  Quit Claude Desktop with Cmd+Q and relaunch."));
+
+  console.log("");
+  printCodexMcpSetup();
+
+  console.log("");
+  printChatGptMcpSetup();
 }
 
 async function planCommand(

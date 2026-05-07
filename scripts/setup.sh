@@ -119,3 +119,5 @@ node dist/cli.js doctor
 line "Done"
 printf "Run: npm start\n"
 printf "Or after npm link: aicw-video\n"
+printf "\nMCP setup snippets:\n"
+node dist/cli.js setup-mcp
