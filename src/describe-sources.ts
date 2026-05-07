@@ -5,6 +5,7 @@ import { z } from "zod";
 import { runProc } from "./run.js";
 import { config } from "./config.js";
 import { getOrTranscribeWords } from "./transcript-cache.js";
+import { getFfmpegPath, getFfprobePath } from "./ffmpeg.js";
 import { proofreadCaptions } from "./caption-proofread.js";
 import { aiCliAvailable, firstAvailableAiCliToolLabel, getCliProvider, type LLMProvider } from "./llm/index.js";
 import { probeAudioUsability } from "./media-audio.js";
@@ -905,7 +906,7 @@ function nearestWordAt(
 }
 
 async function extractThumbnail(videoPath: string, tsMs: number, outPath: string): Promise<void> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   const ts = (tsMs / 1000).toFixed(3);
   await runProc(ffmpeg, [
     "-y", "-ss", ts, "-i", videoPath,
@@ -922,7 +923,7 @@ async function extractThumbnail(videoPath: string, tsMs: number, outPath: string
 }
 
 async function probeDurationMs(filePath: string): Promise<number | undefined> {
-  const ffprobe = process.env.FFPROBE_PATH || "ffprobe";
+  const ffprobe = getFfprobePath();
   try {
     const out = await runProcCapture(ffprobe, [
       "-v", "error", "-show_entries", "format=duration",

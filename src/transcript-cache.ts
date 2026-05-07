@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { runProc } from "./run.js";
 import { probeAudioUsability } from "./media-audio.js";
+import { getFfmpegPath } from "./ffmpeg.js";
 
 export type Word = { startMs: number; endMs: number; text: string };
 
@@ -92,7 +93,7 @@ export async function getOrTranscribeWords(
 }
 
 async function toMonoWav(input: string, out: string): Promise<void> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   await runProc(ffmpeg, [
     "-y", "-i", input,
     "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",

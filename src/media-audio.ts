@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { getFfmpegPath, getFfprobePath } from "./ffmpeg.js";
 
 export type AudioUsability = {
   hasAudioStream: boolean;
@@ -28,7 +29,7 @@ export async function probeAudioUsability(
 }
 
 async function streamHasAudio(filePath: string): Promise<boolean> {
-  const ffprobe = process.env.FFPROBE_PATH || "ffprobe";
+  const ffprobe = getFfprobePath();
   const out = await runCapture(ffprobe, [
     "-v", "error",
     "-select_streams", "a:0",
@@ -40,7 +41,7 @@ async function streamHasAudio(filePath: string): Promise<boolean> {
 }
 
 async function detectMaxVolumeDb(filePath: string, sampleSeconds: number): Promise<number | undefined> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   const out = await runCapture(ffmpeg, [
     "-hide_banner",
     "-nostats",

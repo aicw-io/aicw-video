@@ -17,7 +17,7 @@ import {
   normalizeFaceEmojiSelection,
 } from "./face-emojis.js";
 import { generateVoiceoverTrack } from "./voiceover.js";
-import { getVideoInfo } from "./ffmpeg.js";
+import { getVideoInfo, resolveFfmpegPath } from "./ffmpeg.js";
 
 // Pick a video encoder. Default: VideoToolbox on macOS (uses the media engine,
 // dramatically faster than libx264 with comparable quality for short uploads),
@@ -376,7 +376,6 @@ export async function* renderClipVariants(
   const sourceInfo = await getVideoInfo(src);
   const sourceDims = { w: sourceInfo.width, h: sourceInfo.height };
   const transcriptWords = await loadTranscriptWords(root);
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
 
   yield { type: "start", total: aspectRatios.length };
   const files: string[] = [];
@@ -406,6 +405,7 @@ export async function* renderClipVariants(
 
     try {
       const captions = await prepareCaptions(root, clip, dir, outBase, plan.points);
+      const ffmpeg = await resolveFfmpegPath({ requiredFilters: captions.type === "none" ? [] : ["subtitles"] });
       const startSec = (clip.start_ms / 1000).toFixed(3);
       const endSec = (clip.end_ms / 1000).toFixed(3);
       const renderFilter = await buildRenderFilter(clip, captions, plan.points, sourceDims, transcriptWords);
@@ -434,14 +434,20 @@ export async function* renderClipVariants(
       ];
 
       const startedAt = Date.now();
-      const child = spawn(ffmpeg, args, { stdio: ["ignore", "pipe", "ignore"] });
+      const child = spawn(ffmpeg, args, { stdio: ["ignore", "pipe", "pipe"] });
       // ffmpeg's -progress writes key=value lines; we care about
       // out_time_ms (microseconds rendered into the output). Convert
       // to a percentage of the clip's duration.
       let progressBuf = "";
+      let stderr = "";
+      let spawnError: Error | undefined;
       let lastEmittedPct = -1;
       const emit: RenderStreamEvent[] = [];
       child.stdout.setEncoding("utf-8");
+      child.stderr?.setEncoding("utf-8");
+      child.stderr?.on("data", (chunk: string) => {
+        stderr = (stderr + chunk).slice(-6000);
+      });
       child.stdout.on("data", (chunk: string) => {
         progressBuf += chunk;
         let nl;
@@ -468,7 +474,7 @@ export async function* renderClipVariants(
       // The child runs concurrently with our generator; we drain events
       // by yielding inside a polling loop driven by setImmediate.
       const done = new Promise<number | null>((resolve) => {
-        child.on("error", () => resolve(null));
+        child.on("error", (error) => { spawnError = error; resolve(null); });
         child.on("exit", (code) => resolve(code));
       });
       while (true) {
@@ -519,7 +525,7 @@ export async function* renderClipVariants(
               type: "variant-error",
               clip_id: clip.id,
               aspect_ratio: ar,
-              message: `ffmpeg exited ${settled === null ? "with error" : settled}`,
+              message: ffmpegFailureMessage(settled, spawnError, stderr),
             };
           }
           break;
@@ -613,6 +619,7 @@ async function renderClipAt(
 
   const startSec = (clip.start_ms / 1000).toFixed(3);
   const endSec = (clip.end_ms / 1000).toFixed(3);
+  const ffmpeg = await resolveFfmpegPath({ requiredFilters: captions.type === "none" ? [] : ["subtitles"] });
   const renderFilter = await buildRenderFilter(clip, captions, points, sourceDims, transcriptWords);
   const durationMs = Math.max(1, clip.end_ms - clip.start_ms);
   const voiceover = await prepareVoiceoverAudio(root, clip, dir, name, points);
@@ -624,7 +631,6 @@ async function renderClipAt(
       ]
     : ["-map", "0:a?"];
 
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
   await runProc(ffmpeg, [
     "-y",
     "-ss", startSec, "-to", endSec, "-i", src,
@@ -1460,6 +1466,22 @@ function escapeAssText(t: string): string {
 
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+function ffmpegFailureMessage(code: number | null, spawnError: Error | undefined, stderr: string): string {
+  if (spawnError) return `ffmpeg failed to start: ${spawnError.message}`;
+  const base = `ffmpeg exited ${code === null ? "with error" : code}`;
+  const detail = summarizeFfmpegStderr(stderr);
+  return detail ? `${base}: ${detail}` : base;
+}
+
+function summarizeFfmpegStderr(stderr: string): string {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^frame=\s*\d+/.test(line));
+  return lines.slice(-4).join(" ").slice(0, 1000);
 }
 
 function slug(s: string): string {

@@ -20,6 +20,7 @@ import { replaceAudio } from "./replace-audio.js";
 import { backupIfExists } from "./backup.js";
 import { generateVoiceoverTrack } from "./voiceover.js";
 import { runProc } from "./run.js";
+import { getFfmpegPath } from "./ffmpeg.js";
 import { buildClipTutorial, type ClipTutorialPoint } from "./tutorial-aicw.js";
 import { describeAllSources } from "./describe-sources.js";
 import { PROJECT_META_FILE, loadProjectV2, type ProjectMeta, type SourceDescription, type VisualMomentMetadata } from "./project-v2.js";
@@ -996,7 +997,7 @@ function fileSignatureForCache(filePath: string): { size: number; mtimeMs: numbe
 }
 
 async function muxSourceVideoWithAudio(src: string, audioPath: string, outPath: string): Promise<void> {
-  await runProc(process.env.FFMPEG_PATH || "ffmpeg", [
+  await runProc(getFfmpegPath(), [
     "-y",
     "-i", src,
     "-i", audioPath,

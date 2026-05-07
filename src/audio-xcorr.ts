@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { runProc } from "./run.js";
+import { getFfmpegPath } from "./ffmpeg.js";
 
 // Cross-correlation refinement of transcript-based offsets.
 //
@@ -80,7 +81,7 @@ async function extractMonoWavSlice(
   durationSec: number,
   outPath: string,
 ): Promise<void> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   await runProc(ffmpeg, [
     "-y",
     "-ss", startSec.toFixed(3),

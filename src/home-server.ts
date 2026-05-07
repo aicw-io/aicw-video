@@ -11,6 +11,7 @@ import {
 } from "./projectFolder.js";
 import { matchAudioFiles } from "./match-audio.js";
 import { aiCliAvailable, configuredAiCliToolLabels, preflightAiCliTools } from "./llm/index.js";
+import { getFfmpegPath } from "./ffmpeg.js";
 import {
   initProjectV2,
   loadProjectV2,
@@ -674,7 +675,7 @@ export async function startHomeServer(opts: { port?: number } = {}): Promise<Hom
         if (!existsSync(poster)) {
           try {
             await (await import("node:fs/promises")).mkdir(posterDir, { recursive: true });
-            const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+            const ffmpeg = getFfmpegPath();
             await runProc(ffmpeg, [
               "-y", "-ss", "0", "-i", mp4,
               "-frames:v", "1",

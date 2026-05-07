@@ -7,6 +7,7 @@ import { extractAudio } from "./audio.js";
 import { transcribe } from "./transcribe.js";
 import { runProc } from "./run.js";
 import { cleanupTranscriptText } from "./transcript-text.js";
+import { getFfmpegPath, getFfprobePath } from "./ffmpeg.js";
 
 export type Moment = {
   index: number;
@@ -76,7 +77,7 @@ export async function analyzeVideo(
   }
 
   // Extract one keyframe per timestamp
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   const moments: Moment[] = [];
   for (let i = 0; i < filtered.length; i++) {
     const m = filtered[i]!;
@@ -150,7 +151,7 @@ export function pickEvenMoments(moments: Moment[], n: number): Moment[] {
 }
 
 async function probeDurationMs(videoPath: string): Promise<number> {
-  const ffprobe = process.env.FFPROBE_PATH || "ffprobe";
+  const ffprobe = getFfprobePath();
   return new Promise((resolve, reject) => {
     let out = "";
     const p = spawn(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "default=nokey=1:noprint_wrappers=1", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
@@ -164,7 +165,7 @@ async function probeDurationMs(videoPath: string): Promise<number> {
 }
 
 async function streamHas(videoPath: string, streamSpec: "a" | "v"): Promise<boolean> {
-  const ffprobe = process.env.FFPROBE_PATH || "ffprobe";
+  const ffprobe = getFfprobePath();
   return new Promise((resolve) => {
     let out = "";
     const p = spawn(ffprobe, ["-v", "error", "-select_streams", streamSpec, "-show_entries", "stream=index", "-of", "csv=p=0", videoPath], { stdio: ["ignore", "pipe", "ignore"] });
@@ -175,7 +176,7 @@ async function streamHas(videoPath: string, streamSpec: "a" | "v"): Promise<bool
 }
 
 async function detectScenes(videoPath: string): Promise<number[]> {
-  const ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
+  const ffmpeg = getFfmpegPath();
   return new Promise((resolve) => {
     let err = "";
     const p = spawn(ffmpeg, ["-i", videoPath, "-filter:v", "select='gt(scene,0.4)',showinfo", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] });

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 
 export interface VideoInfo {
   durationMs: number;
@@ -6,12 +7,95 @@ export interface VideoInfo {
   height: number;
 }
 
-function getFfprobePath(): string {
-  return process.env.FFPROBE_PATH || "ffprobe";
+const HOMEBREW_FFMPEG_FULL_BINS = [
+  "/opt/homebrew/opt/ffmpeg-full/bin",
+  "/usr/local/opt/ffmpeg-full/bin",
+];
+
+export function getFfprobePath(): string {
+  const override = process.env.FFPROBE_PATH?.trim();
+  if (override) return override;
+  return firstExistingTool("ffprobe") ?? "ffprobe";
 }
 
-function getFfmpegPath(): string {
-  return process.env.FFMPEG_PATH || "ffmpeg";
+export function getFfmpegPath(): string {
+  const override = process.env.FFMPEG_PATH?.trim();
+  if (override) return override;
+  return firstExistingTool("ffmpeg") ?? "ffmpeg";
+}
+
+export async function resolveFfmpegPath(
+  opts: { requiredFilters?: string[] } = {},
+): Promise<string> {
+  const requiredFilters = [...new Set((opts.requiredFilters ?? []).map((f) => f.trim()).filter(Boolean))];
+  if (requiredFilters.length === 0) return getFfmpegPath();
+
+  const candidates = ffmpegCandidatePaths();
+  const failures: string[] = [];
+  for (const candidate of candidates) {
+    const missing: string[] = [];
+    for (const filter of requiredFilters) {
+      if (!(await ffmpegSupportsFilter(candidate, filter))) missing.push(filter);
+    }
+    if (missing.length === 0) return candidate;
+    failures.push(`${candidate} missing ${missing.join(", ")}`);
+  }
+
+  const filters = requiredFilters.join(", ");
+  const hint = process.platform === "darwin"
+    ? "Install Homebrew ffmpeg-full, or set FFMPEG_PATH to an ffmpeg build compiled with libass/subtitles support."
+    : "Install an ffmpeg build compiled with libass/subtitles support, or set FFMPEG_PATH to that binary.";
+  const checked = failures.length > 0 ? ` Checked: ${failures.join("; ")}.` : "";
+  throw new Error(`No usable ffmpeg found for caption rendering; required filter(s): ${filters}. ${hint}${checked}`);
+}
+
+const filterSupportCache = new Map<string, Promise<boolean>>();
+
+export function ffmpegSupportsFilter(ffmpegPath: string, filter: string): Promise<boolean> {
+  const key = `${ffmpegPath}\0${filter}`;
+  let cached = filterSupportCache.get(key);
+  if (!cached) {
+    cached = probeFfmpegFilter(ffmpegPath, filter);
+    filterSupportCache.set(key, cached);
+  }
+  return cached;
+}
+
+function firstExistingTool(name: "ffmpeg" | "ffprobe"): string | undefined {
+  for (const binDir of HOMEBREW_FFMPEG_FULL_BINS) {
+    const candidate = `${binDir}/${name}`;
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function ffmpegCandidatePaths(): string[] {
+  const override = process.env.FFMPEG_PATH?.trim();
+  if (override) return [override];
+  const candidates = [
+    ...HOMEBREW_FFMPEG_FULL_BINS.map((binDir) => `${binDir}/ffmpeg`),
+    "ffmpeg",
+    "/opt/homebrew/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+  ];
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (candidate.startsWith("/") && !existsSync(candidate)) return false;
+    if (seen.has(candidate)) return false;
+    seen.add(candidate);
+    return true;
+  });
+}
+
+async function probeFfmpegFilter(ffmpegPath: string, filter: string): Promise<boolean> {
+  try {
+    const { stdout, stderr } = await runText(ffmpegPath, ["-hide_banner", "-h", `filter=${filter}`], 5_000);
+    const output = `${stdout}\n${stderr}`;
+    return !/(Unknown filter|No such filter|Filter not found)/i.test(output) &&
+      new RegExp(`\\b${escapeRegExp(filter)}\\b`, "i").test(output);
+  } catch {
+    return false;
+  }
 }
 
 function run(
@@ -34,6 +118,32 @@ function run(
     );
     proc.stdin?.end();
   });
+}
+
+function runText(
+  cmd: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = execFile(
+      cmd,
+      args,
+      { encoding: "utf8", maxBuffer: 1024 * 1024, timeout: timeoutMs },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`${cmd} failed: ${(error as Error).message}`));
+          return;
+        }
+        resolve({ stdout, stderr });
+      },
+    );
+    proc.stdin?.end();
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export async function getVideoInfo(videoPath: string): Promise<VideoInfo> {

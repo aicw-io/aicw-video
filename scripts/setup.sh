@@ -7,6 +7,48 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
+homebrew_ffmpeg_full_bin() {
+  for p in \
+    /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg \
+    /usr/local/opt/ffmpeg-full/bin/ffmpeg
+  do
+    if [[ -x "$p" ]]; then
+      printf "%s\n" "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+homebrew_ffprobe_full_bin() {
+  for p in \
+    /opt/homebrew/opt/ffmpeg-full/bin/ffprobe \
+    /usr/local/opt/ffmpeg-full/bin/ffprobe
+  do
+    if [[ -x "$p" ]]; then
+      printf "%s\n" "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+render_ffmpeg_bin() {
+  if [[ -n "${FFMPEG_PATH:-}" && -x "${FFMPEG_PATH}" ]]; then
+    printf "%s\n" "$FFMPEG_PATH"
+    return 0
+  fi
+  homebrew_ffmpeg_full_bin && return 0
+  command -v ffmpeg
+}
+
+ffmpeg_supports_subtitles() {
+  local ffmpeg
+  ffmpeg="$(render_ffmpeg_bin 2>/dev/null || true)"
+  [[ -n "$ffmpeg" ]] || return 1
+  "$ffmpeg" -hide_banner -h filter=subtitles 2>&1 | grep -Eiq "Filter subtitles|subtitles AVOptions"
+}
+
 line() {
   printf "\n==> %s\n" "$1"
 }
@@ -29,7 +71,7 @@ need_brew_pkg() {
 line "AICW Video setup"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  warn "this setup script is macOS-first; install ffmpeg, whisper-cpp, Node.js 20+, and npm manually on this platform"
+  warn "this setup script is macOS-first; install ffmpeg with libass/subtitles support, whisper-cpp, Node.js 20+, and npm manually on this platform"
 else
   if ! have brew; then
     printf "Homebrew is required to install system dependencies.\n"
@@ -38,8 +80,13 @@ else
   fi
 
   BREW_PACKAGES=""
-  have ffmpeg || need_brew_pkg ffmpeg
-  have ffprobe || need_brew_pkg ffmpeg
+  if ! have ffmpeg && ! homebrew_ffmpeg_full_bin >/dev/null 2>&1; then
+    need_brew_pkg ffmpeg-full
+  fi
+  if ! have ffprobe && ! homebrew_ffprobe_full_bin >/dev/null 2>&1; then
+    need_brew_pkg ffmpeg-full
+  fi
+  ffmpeg_supports_subtitles || need_brew_pkg ffmpeg-full
   have whisper-cli || need_brew_pkg whisper-cpp
   have node || need_brew_pkg node
   have npm || need_brew_pkg node
