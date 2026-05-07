@@ -3,11 +3,19 @@
 AICW Video is an AI-powered editor for turning video recordings into short,
 captioned social clips.
 
+## Quick Links
+
+- [Install](#install-aicw-video)
+- [Start the app](#start-the-app)
+- [Use from Claude, Codex, or ChatGPT](#use-from-ai-apps)
+- [Privacy and AI use](#how-ai-is-used)
+- [Troubleshooting](#troubleshooting)
+
 ## Features
 
-- **Create projects from assorted video and audiot** Just drop multiple video files and their separately recorded audio tracks if any.
+- **Create projects from assorted video and audio** Drop multiple video files and separately recorded audio tracks if any.
 - **Auto-matches audio tracks** Auto detects, matches and syncs audio to parent video.
-- **Auto-suggestes clips moments with AI** Analyzes videos to find key moments for short ranges to cut.
+- **Auto-suggests clip moments with AI** Analyzes videos to find key moments for short ranges to cut.
 - **Generates captions** Creates speech captions, previews them and renders to final video
 - **Caption silent videos** Uses AI scene analysis to describe videos without
   usable audio.
@@ -16,7 +24,7 @@ captioned social clips.
   LinkedIn, Instagram feed, and YouTube landscape MP4s.
 - **Privacy tools** Blur or replace faces, replace original audio with generated voice-over.
 
-# Screenshots and demo  
+## Screenshots And Demo
 
 **Screenshots**
 
@@ -40,7 +48,7 @@ https://github.com/user-attachments/assets/0044971a-9da1-4b01-97d3-a0329eb3157f
 | `ffmpeg-full` / `ffprobe` | Used for local audio extraction, frame sampling, video probing, and rendering. Caption rendering requires ffmpeg's libass/subtitles filter. |
 | `whisper-cpp` | Used for local speech transcription. |
 | `tensorflow` | (auto-installed as library) used for local faces detections
-| AI: Claude Code, Codex CLI or Ollama (can use local LLM), or an MCP-capable AI host (ChatGPT, Claude, Codex) | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
+| AI: Claude Code, Claude Desktop, Codex CLI, or Ollama; ChatGPT requires remote MCP mode | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
 
 ## Install AICW Video
 
@@ -106,6 +114,39 @@ render clips.
 From a source checkout, `npm start` runs `bin/start`, which builds the app and
 starts the same browser hub.
 
+## Use From AI Apps
+
+AICW Video ships a local stdio MCP server. Claude Code, Claude Desktop, and
+Codex can call it to import a video, analyze it, create a plan, and render clips.
+
+```bash
+aicw-video setup-mcp
+```
+
+| Host | Setup | Notes |
+| --- | --- | --- |
+| Claude Code | `claude mcp add aicw-video -- aicw-video mcp` | Recommended path. |
+| Claude Desktop | Add the JSON from `aicw-video setup-mcp` to `claude_desktop_config.json`. | Quit with Cmd+Q, then relaunch. |
+| Codex CLI | Add the TOML from `aicw-video setup-mcp` to `~/.codex/config.toml`. | Restart Codex. |
+| ChatGPT / ChatGPT Desktop | Requires a remote MCP server URL using SSE or streaming HTTP. | Local `aicw-video mcp` is stdio, so use Codex CLI for OpenAI local-MCP workflows today. |
+
+Prompt example:
+
+```text
+use aicw-video to cut /path/to/video.mov into clips
+```
+
+Claude Code can run the whole flow and return the output folder:
+
+<p>
+  <img src="docs/img/aicw-video-from-claude-1.png" alt="Claude Code creating and analyzing an AICW Video project" width="32%">
+  <img src="docs/img/aicw-video-from-claude-2.png" alt="Claude Code rendering captioned clips with AICW Video" width="32%">
+  <img src="docs/img/aicw-video-from-claude-3.png" alt="Rendered AICW Video clips in Finder" width="32%">
+</p>
+
+ChatGPT Developer Mode currently documents remote MCP support, not local stdio
+commands: <https://platform.openai.com/docs/guides/developer-mode>.
+
 ## Typical Workflow
 
 Files are stored in the AICW Video projects folder:
@@ -146,8 +187,9 @@ have installed:
 - **Codex CLI**: can be used through CLI
 - **Ollama**: can be configured as a local AI fallback in
   `config.json`. The current built-in Ollama adapter is text-only, so visual
-  frame descriptions still require Claude Code, Codex, or MCP host sampling.
-- **MCP host sampling**: you can add AICW Video to ChatGPT or Claude and call AICW Video from them.
+  frame descriptions still require Claude Code, Codex, or an MCP host that supports sampling.
+- **MCP host sampling**: Claude Code, Claude Desktop, and Codex can call the
+  local MCP server; ChatGPT requires a remote MCP URL.
 
 AI scene analysis is used for: suggested clip ranges, keyframe labels,
 silent-video visual captions, and optional caption proofreading. When it is off,
@@ -158,139 +200,6 @@ Code, Codex, or another cloud-connected AI host for describing a video, sampled 
 snippets, and caption text may be sent to that provider by the host tool. 
 
 If you need full local AI only, then configure Ollama with local LLM like Qwen or Gemma (see below)
-
-## Use AICW Video As MCP
-
-AICW Video exposes a local stdio MCP server. Claude Code and Codex can use it to
-create projects from video/audio files, analyze them, and return a local review
-link. ChatGPT custom apps currently require a remote MCP server URL, so the
-local stdio server is not directly usable from ChatGPT yet.
-
-Print host-specific setup snippets at any time:
-
-```bash
-aicw-video setup-mcp
-```
-
-### Claude Code
-
-From a source checkout:
-
-```bash
-cd /absolute/path/to/aicw-video
-./scripts/setup.sh
-claude mcp add aicw-video -- node /absolute/path/to/aicw-video/dist/cli.js mcp
-claude mcp list
-```
-
-If you installed with `npm link`, you can register the global command instead:
-
-```bash
-claude mcp add aicw-video -- aicw-video mcp
-```
-
-Try it in Claude Code:
-
-```text
-Use aicw-video. Call ping_host with includeImage=true.
-```
-
-Then process a video:
-
-```text
-Use aicw-video to create a project from /path/to/video.mov, analyze it, then call review_project and give me the review link.
-```
-
-### Codex CLI
-
-From a source checkout, first run:
-
-```bash
-cd /absolute/path/to/aicw-video
-./scripts/setup.sh
-```
-
-Then edit `~/.codex/config.toml` and add:
-
-```toml
-[mcp_servers.aicw-video]
-command = "node"
-args = ["/absolute/path/to/aicw-video/dist/cli.js", "mcp"]
-```
-
-If you installed with `npm link`, this also works:
-
-```toml
-[mcp_servers.aicw-video]
-command = "aicw-video"
-args = ["mcp"]
-```
-
-Restart Codex, then try:
-
-```text
-Use aicw-video MCP. Call list_projects.
-```
-
-Then:
-
-```text
-Use aicw-video MCP to create a project from /path/to/video.mov, analyze it, then call review_project.
-```
-
-### ChatGPT Desktop / ChatGPT Developer Mode
-
-ChatGPT custom MCP apps currently expect a remote MCP server URL using SSE or
-streaming HTTP. AICW Video currently ships a local stdio MCP server:
-
-```bash
-aicw-video mcp
-```
-
-That means the ChatGPT Desktop custom connector screen cannot use the current
-AICW Video MCP server directly. Do not paste `aicw-video mcp`,
-`node dist/cli.js mcp`, or a `127.0.0.1` URL into ChatGPT's "Remote MCP server
-URL" field.
-
-For ChatGPT/OpenAI workflows today, use AICW Video through Codex CLI. Once AICW
-Video adds a remote HTTP MCP mode, the ChatGPT setup will be:
-
-1. Start or deploy the remote MCP server and get an HTTPS URL, for example:
-
-   ```text
-   https://your-domain.example.com/mcp
-   ```
-
-2. In ChatGPT, enable Developer Mode:
-
-   ```text
-   Settings -> Apps -> Advanced settings -> Developer mode
-   ```
-
-3. Open Apps settings, create a custom app from MCP, and use:
-
-   ```text
-   Name: AICW Video
-   Remote MCP server URL: https://your-domain.example.com/mcp
-   Authentication: No authentication or OAuth, depending on your deployment
-   ```
-
-4. In a chat, choose Developer Mode and select the AICW Video app. Then try:
-
-   ```text
-   Use AICW Video to create a project from /path/to/video.mov, analyze it, then call review_project.
-   ```
-
-OpenAI's current MCP docs describe ChatGPT custom apps as remote MCP servers
-using SSE or streaming HTTP:
-<https://platform.openai.com/docs/guides/developer-mode>.
-
-You can also open the setup hub, which shows copy-paste snippets:
-
-```bash
-aicw-video home
-```
-
 
 ### Advanced: Local Ollama
 
