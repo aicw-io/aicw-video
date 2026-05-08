@@ -1,7 +1,7 @@
 # AICW Video
 
-AICW Video is an AI-powered editor for turning video recordings into short,
-captioned social clips.
+AICW Video is an open-source AI agent and standalone app for editing human
+video interviews into captioned, privacy-aware social clips.
 
 ## Quick Links
 
@@ -18,16 +18,14 @@ captioned social clips.
 
 ## Features
 
-- **Create projects from assorted video and audio** Drop multiple video files and separately recorded audio tracks if any.
-- **Auto-matches audio tracks** Auto detects, matches and syncs audio to parent video.
-- **Auto-suggests clip moments with AI** Analyzes videos to find key moments for short ranges to cut.
-- **Generates captions** Creates speech captions, previews them and renders to final video
-- **Caption silent videos** Uses AI scene analysis to describe videos without
-  usable audio.
-- **Preview before rendering** Review each clip before rendering
-- **Export social formats** TikTok, Instagram Reels, YouTube Shorts,
-  LinkedIn, Instagram feed, and YouTube landscape MP4s.
-- **Privacy tools** Blur or replace faces, replace original audio with generated voice-over.
+- **Auto-matches separately recorded audio** Detects, aligns, and syncs external audio tracks to the parent video.
+- **Auto-generates captions** Transcribes speech locally, previews captions, and renders them into the final video.
+- **Protects faces** Detects face regions locally, then blurs them or replaces them with emoji overlays.
+- **Protects voices** Replaces original speaking audio with computer-generated voice-over.
+- **Suggests short clip moments** Uses AI scene analysis to find strong ranges for social clips.
+- **Exports social formats** Renders TikTok, Instagram Reels, YouTube Shorts, LinkedIn, Instagram feed, and YouTube landscape MP4s.
+- **Live preview for every option** Review ranges, captions, crop, privacy, voice-over, and format settings before rendering.
+- **Works standalone or with AI agents** Use the browser hub directly, or connect Claude, Codex, and ChatGPT-compatible MCP hosts.
 
 ## Screenshots And Demo
 
@@ -51,8 +49,8 @@ https://github.com/user-attachments/assets/0044971a-9da1-4b01-97d3-a0329eb3157f
 | Node.js 20+ | Runtime for the CLI, MCP server, and web hub. |
 | `ffmpeg-full` / `ffprobe` | Used for local audio extraction, frame sampling, video probing, and rendering. Caption rendering requires ffmpeg's libass/subtitles filter. |
 | `whisper-cpp` | Used for local speech transcription. |
-| `tensorflow` | (auto-installed as library) used for local faces detections
-| AI: Claude Code, Claude Desktop, Codex CLI, or Ollama; ChatGPT requires remote MCP mode | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
+| `tensorflow` | Auto-installed as a library for local face detection. |
+| AI: Claude Code, Claude Desktop, Codex CLI, ChatGPT-compatible remote MCP, or Ollama | Optional. Needed when AI scene analysis is enabled. Claude Code is the recommended/tested standalone path today. |
 
 ## Install AICW Video
 
@@ -64,8 +62,10 @@ brew install aicw-io/tap/aicw-video
 
 ## Run as AI Agent for Claude, Codex, ChatGPT
 
-AICW Video ships a local stdio MCP server. Claude Code, Claude Desktop, and
-Codex can call it to import a video, analyze it, create a plan, and render clips.
+AICW Video ships a local stdio MCP server and a packaged Claude Skill. Claude
+Code, Claude Desktop, Codex, and ChatGPT-compatible remote MCP hosts can use it
+to import a video, analyze it, create a plan, open the review hub, and render
+clips.
 
 ```bash
 aicw-video setup-mcp
@@ -74,6 +74,7 @@ aicw-video setup-mcp
 | Host | Setup | Notes |
 | --- | --- | --- |
 | Claude Code | `claude mcp add aicw-video -- aicw-video mcp` | Recommended path. |
+| Claude Skill | Open the browser hub, then copy the packaged skill from **How to use -> Claude Skill** into `~/.claude/skills/aicw-video/SKILL.md`. | Works alongside MCP and improves natural-language triggering. |
 | Claude Desktop | Add the JSON from `aicw-video setup-mcp` to `claude_desktop_config.json`. | Quit with Cmd+Q, then relaunch. |
 | Codex CLI | Add the TOML from `aicw-video setup-mcp` to `~/.codex/config.toml`. | Restart Codex. |
 | ChatGPT / ChatGPT Desktop | Requires a remote MCP server URL using SSE or streaming HTTP. | Local `aicw-video mcp` is stdio, so use Codex CLI for OpenAI local-MCP workflows today. |
@@ -107,6 +108,11 @@ From a source checkout, `npm start` runs `bin/start`, which builds the app and
 starts the same browser hub.
 
 ## Typical Workflow
+
+1. Add an interview video and, if available, a separately recorded audio file.
+2. Analyze the project to transcribe speech, sync external audio, detect faces, and suggest short clips.
+3. Open the plan UI to preview clip ranges, captions, crop, privacy overlays, voice-over, and export formats.
+4. Render selected clips for TikTok, Instagram Reels, YouTube Shorts, LinkedIn, or other formats.
 
 Files are stored in the AICW Video projects folder:
 
