@@ -5,11 +5,16 @@ captioned social clips.
 
 ## Quick Links
 
-- [Install](#install-aicw-video)
-- [Start the app](#start-the-app)
-- [Use from Claude, Codex, or ChatGPT](#use-from-ai-apps)
-- [Privacy and AI use](#how-ai-is-used)
+- [Features](#features)
+- [Screenshots and demo](#screenshots-and-demo)
+- [Requirements](#requirements)
+- [Install AICW Video](#install-aicw-video)
+- [Run as AI Agent for Claude, Codex, ChatGPT](#run-as-ai-agent-for-claude-codex-chatgpt)
+- [Start as Standalone App](#start-as-standalone-app)
+- [Typical Workflow](#typical-workflow)
 - [Troubleshooting](#troubleshooting)
+- [Caveats](#caveats)
+- [How AI Is Used](#how-ai-is-used)
 
 ## Features
 
@@ -28,15 +33,14 @@ captioned social clips.
 
 **Screenshots**
 
-![Screenshot 1](docs/img/aicw-video-screenshot-1.png)
-![Screenshot 2](docs/img/aicw-video-screenshot-2.png)
+![Claude Code rendering captioned clips with AICW Video](docs/img/aicw-video-from-claude-2.png)
+![AICW Video Screenshot 1](docs/img/aicw-video-screenshot-1.png)
+![AICW Video Screenshot 2](docs/img/aicw-video-screenshot-2.png)
 
 
 **Video Demo:**
 
 https://github.com/user-attachments/assets/0044971a-9da1-4b01-97d3-a0329eb3157f
-
-
 
 ## Requirements
 
@@ -58,14 +62,68 @@ https://github.com/user-attachments/assets/0044971a-9da1-4b01-97d3-a0329eb3157f
 brew install aicw-io/tap/aicw-video
 ```
 
-Homebrew pulls Node.js, ffmpeg-full, and whisper-cpp as dependencies. Release runbook:
-[`docs/release/HOMEBREW.md`](docs/release/HOMEBREW.md).
+## Run as AI Agent for Claude, Codex, ChatGPT
 
-To install the development build from the upstream `main` branch:
+AICW Video ships a local stdio MCP server. Claude Code, Claude Desktop, and
+Codex can call it to import a video, analyze it, create a plan, and render clips.
 
 ```bash
-brew install --HEAD aicw-io/tap/aicw-video
+aicw-video setup-mcp
 ```
+
+| Host | Setup | Notes |
+| --- | --- | --- |
+| Claude Code | `claude mcp add aicw-video -- aicw-video mcp` | Recommended path. |
+| Claude Desktop | Add the JSON from `aicw-video setup-mcp` to `claude_desktop_config.json`. | Quit with Cmd+Q, then relaunch. |
+| Codex CLI | Add the TOML from `aicw-video setup-mcp` to `~/.codex/config.toml`. | Restart Codex. |
+| ChatGPT / ChatGPT Desktop | Requires a remote MCP server URL using SSE or streaming HTTP. | Local `aicw-video mcp` is stdio, so use Codex CLI for OpenAI local-MCP workflows today. |
+
+Prompt example:
+
+```text
+use aicw-video to cut /path/to/video.mov into clips
+```
+
+Claude Code can run the whole flow and return the output folder:
+
+![Claude Code creating and analyzing an AICW Video project](docs/img/aicw-video-from-claude-1.png)
+![Claude Code rendering captioned clips with AICW Video](docs/img/aicw-video-from-claude-2.png)
+![Rendered AICW Video clips in Finder](docs/img/aicw-video-from-claude-3.png)
+
+ChatGPT Developer Mode currently documents remote MCP support, not local stdio
+commands: <https://platform.openai.com/docs/guides/developer-mode>.
+
+## Start As Standalone App
+
+```bash
+aicw-video
+```
+
+The browser hub opens at `http://127.0.0.1:8764/`. From there you can create a
+project, add videos and audio tracks, analyze sources, open each video plan, and
+render clips.
+
+From a source checkout, `npm start` runs `bin/start`, which builds the app and
+starts the same browser hub.
+
+## Typical Workflow
+
+Files are stored in the AICW Video projects folder:
+
+```text
+~/aicw-video/projects/<project>/<video>/shorts/render-<timestamp>/
+```
+
+## Troubleshooting
+
+- **`aicw-video doctor` shows a missing `whisper-cli`:** install whisper.cpp
+  with `brew install whisper-cpp`.
+- **Hub says "error: Load failed" when opening a project:** first plan builds can
+  take a short while because AICW Video generates frame and caption-style
+  previews. Reopen after the build finishes.
+- **Port 8764 is busy:** the hub scans nearby ports. Check terminal output for
+  the actual URL.
+- If nothing helps, [create new issue](https://github.com/aicw-io/aicw-video/issues/new)
 
 ### From Source
 
@@ -101,68 +159,16 @@ bin/dev
 bin/start
 ```
 
-## Start The App
+#### Homebrew installation notes
+
+Homebrew pulls Node.js, ffmpeg-full, and whisper-cpp as dependencies. Release runbook:
+[`docs/release/HOMEBREW.md`](docs/release/HOMEBREW.md).
+
+To install the development build from the upstream `main` branch:
 
 ```bash
-aicw-video
+brew install --HEAD aicw-io/tap/aicw-video
 ```
-
-The browser hub opens at `http://127.0.0.1:8764/`. From there you can create a
-project, add videos and audio tracks, analyze sources, open each video plan, and
-render clips.
-
-From a source checkout, `npm start` runs `bin/start`, which builds the app and
-starts the same browser hub.
-
-## Use From AI Apps
-
-AICW Video ships a local stdio MCP server. Claude Code, Claude Desktop, and
-Codex can call it to import a video, analyze it, create a plan, and render clips.
-
-```bash
-aicw-video setup-mcp
-```
-
-| Host | Setup | Notes |
-| --- | --- | --- |
-| Claude Code | `claude mcp add aicw-video -- aicw-video mcp` | Recommended path. |
-| Claude Desktop | Add the JSON from `aicw-video setup-mcp` to `claude_desktop_config.json`. | Quit with Cmd+Q, then relaunch. |
-| Codex CLI | Add the TOML from `aicw-video setup-mcp` to `~/.codex/config.toml`. | Restart Codex. |
-| ChatGPT / ChatGPT Desktop | Requires a remote MCP server URL using SSE or streaming HTTP. | Local `aicw-video mcp` is stdio, so use Codex CLI for OpenAI local-MCP workflows today. |
-
-Prompt example:
-
-```text
-use aicw-video to cut /path/to/video.mov into clips
-```
-
-Claude Code can run the whole flow and return the output folder:
-
-![Claude Code creating and analyzing an AICW Video project](docs/img/aicw-video-from-claude-1.png)
-![Claude Code rendering captioned clips with AICW Video](docs/img/aicw-video-from-claude-2.png)
-![Rendered AICW Video clips in Finder](docs/img/aicw-video-from-claude-3.png)
-
-
-ChatGPT Developer Mode currently documents remote MCP support, not local stdio
-commands: <https://platform.openai.com/docs/guides/developer-mode>.
-
-## Typical Workflow
-
-Files are stored in the AICW Video projects folder:
-
-```text
-~/aicw-video/projects/<project>/<video>/shorts/render-<timestamp>/
-```
-
-## Troubleshooting
-
-- **`aicw-video doctor` shows a missing `whisper-cli`:** install whisper.cpp
-  with `brew install whisper-cpp`.
-- **Hub says "error: Load failed" when opening a project:** first plan builds can
-  take a short while because AICW Video generates frame and caption-style
-  previews. Reopen after the build finishes.
-- **Port 8764 is busy:** the hub scans nearby ports. Check terminal output for
-  the actual URL.
 
 ## Caveats
 
