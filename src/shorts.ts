@@ -62,6 +62,11 @@ const MomentCropSchema = z.object({
   bottom: z.number().min(0).max(0.95).optional(),
 }).passthrough();
 
+const IllustrationModeSchema = z.preprocess(
+  (value) => value === "demo_only" ? "animation_only" : value,
+  z.enum(["none", "side_by_side", "animation_only"]),
+);
+
 export const PointSchema = z.object({
   index: z.number().int().nonnegative(),
   ts_ms: z.number().int().nonnegative(),
@@ -73,6 +78,21 @@ export const PointSchema = z.object({
   // Optional per-moment extra crop margins, expressed as fractions of the
   // already-reframed output frame. Used for quick privacy cleanup.
   crop: MomentCropSchema.optional(),
+  // Optional per-moment generated illustration video. The asset is generated
+  // explicitly from the plan UI and cached under cache/illustrations; render
+  // only composes an existing cached asset.
+  illustration: z.object({
+    mode: IllustrationModeSchema.default("none"),
+    prompt: z.string().optional(),
+    video_path: z.string().optional(),
+    cache_key: z.string().optional(),
+    duration_ms: z.number().optional(),
+    generated_at: z.string().optional(),
+    source_point_index: z.number().optional(),
+    source_ts_ms: z.number().optional(),
+    asset_label: z.string().optional(),
+    explicit: z.boolean().optional(),
+  }).passthrough().optional(),
 });
 export type Point = z.infer<typeof PointSchema>;
 
@@ -188,6 +208,9 @@ type Cue = { startMs: number; endMs: number; text: string };
 type WordTiming = { startMs: number; endMs: number; text: string };
 type Captions = { type: "none" } | { type: "srt" | "ass"; path: string };
 type FaceEmojiEvent = NormalizedVisualRegion & { startMs: number; endMs: number; fallback?: boolean; fallbackDiameterNorm?: number };
+type IllustrationMode = "none" | "side_by_side" | "animation_only";
+type IllustrationSegment = { startMs: number; endMs: number; mode: IllustrationMode; path?: string; inputIndex?: number; pointIndex?: number };
+const ILLUSTRATION_MIN_SEGMENT_MS = 5000;
 type FacePrivacyInput = {
   path?: string;
   baseInputIndex?: number;
@@ -408,7 +431,7 @@ export async function* renderClipVariants(
       const ffmpeg = await resolveFfmpegPath({ requiredFilters: captions.type === "none" ? [] : ["subtitles"] });
       const startSec = (clip.start_ms / 1000).toFixed(3);
       const endSec = (clip.end_ms / 1000).toFixed(3);
-      const renderFilter = await buildRenderFilter(clip, captions, plan.points, sourceDims, transcriptWords);
+      const renderFilter = await buildRenderFilter(root, clip, captions, plan.points, sourceDims, transcriptWords);
       const durationMs = Math.max(1, clip.end_ms - clip.start_ms);
       const voiceover = await prepareVoiceoverAudio(root, clip, dir, outBase, plan.points);
       const voiceoverInputIndex = 1 + renderFilter.extraInputCount;
@@ -620,7 +643,7 @@ async function renderClipAt(
   const startSec = (clip.start_ms / 1000).toFixed(3);
   const endSec = (clip.end_ms / 1000).toFixed(3);
   const ffmpeg = await resolveFfmpegPath({ requiredFilters: captions.type === "none" ? [] : ["subtitles"] });
-  const renderFilter = await buildRenderFilter(clip, captions, points, sourceDims, transcriptWords);
+  const renderFilter = await buildRenderFilter(root, clip, captions, points, sourceDims, transcriptWords);
   const durationMs = Math.max(1, clip.end_ms - clip.start_ms);
   const voiceover = await prepareVoiceoverAudio(root, clip, dir, name, points);
   const voiceoverInputIndex = 1 + renderFilter.extraInputCount;
@@ -837,6 +860,7 @@ function sameMomentCrop(a: MomentCropMargins | null, b: MomentCropMargins | null
 }
 
 async function buildRenderFilter(
+  root: string,
   clip: Clip,
   captions: Captions,
   points: Plan["points"] | undefined,
@@ -844,8 +868,15 @@ async function buildRenderFilter(
   transcriptWords: WordTiming[],
 ): Promise<RenderFilter> {
   const faceInput = await prepareFacePrivacyInput(clip, points, transcriptWords);
+  const illustrationSegments = illustrationSegmentsForClip(root, clip, points);
   const extraInputArgs: string[] = [];
   let extraInputCount = 0;
+  for (const segment of illustrationSegments) {
+    if (segment.mode === "none" || !segment.path) continue;
+    segment.inputIndex = 1 + extraInputCount;
+    extraInputArgs.push("-stream_loop", "-1", "-i", segment.path);
+    extraInputCount++;
+  }
   if (faceInput?.path) {
     faceInput.baseInputIndex = 1 + extraInputCount;
     extraInputArgs.push("-loop", "1", "-i", faceInput.path);
@@ -857,10 +888,93 @@ async function buildRenderFilter(
     extraInputCount++;
   }
   return {
-    filterComplex: buildFilter(clip, captions, points, faceInput, sourceDims),
+    filterComplex: buildFilter(clip, captions, points, faceInput, illustrationSegments, sourceDims),
     extraInputArgs,
     extraInputCount,
   };
+}
+
+function illustrationSegmentsForClip(root: string, clip: Clip, points: Plan["points"] | undefined): IllustrationSegment[] {
+  if (!points || points.length === 0) return [];
+  const clipDur = Math.max(0, clip.end_ms - clip.start_ms);
+  if (clipDur <= 0) return [];
+  const sorted = [...points].sort((a, b) => a.ts_ms - b.ts_ms);
+  const events = sorted
+    .filter((point) => point.ts_ms < clip.end_ms && isIllustrationTimelineEvent(point.illustration))
+    .map((point) => {
+      const mode = normalizeIllustrationMode(point.illustration?.mode);
+      const durationMs = Math.max(1000, Math.round(Number(point.illustration?.duration_ms || ILLUSTRATION_MIN_SEGMENT_MS)));
+      return { point, mode, durationMs };
+    });
+  const raw: IllustrationSegment[] = [];
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]!;
+    if (event.mode === "none") continue;
+    const point = event.point;
+    const nextEventTs = i + 1 < events.length ? events[i + 1]!.point.ts_ms : Infinity;
+    const startAbs = Math.max(clip.start_ms, point.ts_ms);
+    const endAbs = Math.min(clip.end_ms, point.ts_ms + Math.max(ILLUSTRATION_MIN_SEGMENT_MS, event.durationMs), nextEventTs);
+    if (endAbs <= clip.start_ms || startAbs >= clip.end_ms || endAbs <= startAbs) continue;
+    const asset = resolveIllustrationAsset(root, point.illustration?.video_path);
+    if (!asset) {
+      throw new Error(`point #${point.index} is set to ${event.mode}, but no cached illustration video exists. Generate or select an asset in the Illustrations tab first.`);
+    }
+    raw.push({
+      startMs: Math.max(0, startAbs - clip.start_ms),
+      endMs: Math.min(clipDur, endAbs - clip.start_ms),
+      mode: event.mode,
+      path: asset,
+      pointIndex: point.index,
+    });
+  }
+  if (raw.length === 0) return [];
+  const filled: IllustrationSegment[] = [];
+  let cursor = 0;
+  for (const segment of raw.sort((a, b) => a.startMs - b.startMs)) {
+    if (segment.startMs > cursor) filled.push({ startMs: cursor, endMs: segment.startMs, mode: "none" });
+    filled.push(segment);
+    cursor = Math.max(cursor, segment.endMs);
+  }
+  if (cursor < clipDur) filled.push({ startMs: cursor, endMs: clipDur, mode: "none" });
+  return filled.some((s) => s.mode !== "none") ? mergeIllustrationSegments(filled) : [];
+}
+
+function normalizeIllustrationMode(value: unknown): IllustrationMode {
+  if (value === "demo_only") return "animation_only";
+  return value === "side_by_side" || value === "animation_only" ? value : "none";
+}
+
+function isIllustrationTimelineEvent(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const illustration = value as { mode?: unknown; explicit?: unknown };
+  return normalizeIllustrationMode(illustration.mode) !== "none" || illustration.explicit === true;
+}
+
+function resolveIllustrationAsset(root: string, relOrAbs: unknown): string | undefined {
+  const raw = typeof relOrAbs === "string" ? relOrAbs.trim() : "";
+  if (!raw) return undefined;
+  const resolved = path.resolve(path.isAbsolute(raw) ? raw : path.join(root, raw));
+  const rootResolved = path.resolve(root);
+  if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) return undefined;
+  return existsSync(resolved) ? resolved : undefined;
+}
+
+function mergeIllustrationSegments(segments: IllustrationSegment[]): IllustrationSegment[] {
+  const out: IllustrationSegment[] = [];
+  for (const segment of segments) {
+    const prev = out[out.length - 1];
+    if (
+      prev &&
+      prev.mode === segment.mode &&
+      prev.path === segment.path &&
+      Math.abs(prev.endMs - segment.startMs) <= 1
+    ) {
+      prev.endMs = segment.endMs;
+    } else {
+      out.push({ ...segment });
+    }
+  }
+  return out;
 }
 
 async function prepareFacePrivacyInput(
@@ -905,6 +1019,7 @@ function buildFilter(
   captions: Captions,
   points: Plan["points"] | undefined,
   faceInput: FacePrivacyInput | undefined,
+  illustrationSegments: IllustrationSegment[],
   sourceDims: VideoDims,
 ): string {
   const dims = targetDims(clip.aspect_ratio);
@@ -918,18 +1033,78 @@ function buildFilter(
   const sourcePrefix = [faceBlur, faceEmoji, faceMouth, sourceCropChain].filter(Boolean).join(";");
   const withPrefix = (chain: string): string => sourcePrefix ? `${sourcePrefix};${chain}` : chain;
   const finalize = (baseChain: string): string => `${baseChain};[base]${subtitleFilter}[v]`;
+  const sourceOutLabel = illustrationSegments.length > 0 ? "source_base" : "base";
+  const finish = (sourceChain: string): string => {
+    const prefixed = withPrefix(sourceChain);
+    if (illustrationSegments.length === 0) return finalize(prefixed);
+    return `${prefixed};${illustrationCompositeChain("[source_base]", illustrationSegments, dims, "v", subtitleFilter)}`;
+  };
   if (clip.reframe === "letterbox-blur") {
-    return finalize(
-      withPrefix(
+    return finish(
       `${sourceInput}split[bg][fg];` +
       `[bg]scale=${dims.w}:${dims.h}:force_original_aspect_ratio=increase,crop=${dims.w}:${dims.h},boxblur=20:5[bgb];` +
       `[fg]scale=${dims.w}:${dims.h}:force_original_aspect_ratio=decrease[fgs];` +
-      `[bgb][fgs]overlay=(W-w)/2:(H-h)/2[base]`,
-      )
+      `[bgb][fgs]overlay=(W-w)/2:(H-h)/2[${sourceOutLabel}]`,
     );
   }
   const x = clip.crop_x_norm ?? 0.5;
-  return finalize(withPrefix(`${sourceInput}${cropExpr(clip.aspect_ratio, x)},scale=${dims.w}:${dims.h}[base]`));
+  return finish(`${sourceInput}${cropExpr(clip.aspect_ratio, x)},scale=${dims.w}:${dims.h}[${sourceOutLabel}]`);
+}
+
+function illustrationCompositeChain(
+  sourceInputLabel: string,
+  segments: IllustrationSegment[],
+  dims: { w: number; h: number },
+  outputLabel: string,
+  subtitleFilter: string,
+): string {
+  if (segments.length === 0) return `${sourceInputLabel}copy[${outputLabel}]`;
+  if (segments.length === 1) return illustrationSegmentChain(sourceInputLabel, segments[0]!, dims, outputLabel, subtitleFilter);
+  const parts: string[] = [];
+  const sourceLabels: string[] = [];
+  const splitLabels = segments.map((_, idx) => `[ill_src_${idx}]`).join("");
+  parts.push(`${sourceInputLabel}split=${segments.length}${splitLabels}`);
+  for (let i = 0; i < segments.length; i++) sourceLabels.push(`[ill_src_${i}]`);
+  const outLabels: string[] = [];
+  segments.forEach((segment, idx) => {
+    const out = `ill_seg_${idx}`;
+    outLabels.push(`[${out}]`);
+    parts.push(illustrationSegmentChain(sourceLabels[idx]!, segment, dims, out, subtitleFilter));
+  });
+  parts.push(`${outLabels.join("")}concat=n=${segments.length}:v=1:a=0[${outputLabel}]`);
+  return parts.join(";");
+}
+
+function illustrationSegmentChain(
+  sourceInputLabel: string,
+  segment: IllustrationSegment,
+  dims: { w: number; h: number },
+  outputLabel: string,
+  subtitleFilter: string,
+): string {
+  const start = (segment.startMs / 1000).toFixed(3);
+  const end = (segment.endMs / 1000).toFixed(3);
+  const duration = Math.max(0.001, (segment.endMs - segment.startMs) / 1000).toFixed(3);
+  const subtitlePrefix = subtitleFilter === "null" ? "" : `${subtitleFilter},`;
+  const subtitleStep = subtitleFilter === "null" ? "" : `,${subtitleFilter}`;
+  const sourceTrim = `${sourceInputLabel}trim=start=${start}:end=${end},setpts=PTS-STARTPTS`;
+  const sourceCaptionTrim = `${sourceInputLabel}${subtitlePrefix}trim=start=${start}:end=${end},setpts=PTS-STARTPTS`;
+  if (segment.mode === "none") {
+    return `${sourceCaptionTrim},setsar=1[${outputLabel}]`;
+  }
+  if (segment.inputIndex == null) {
+    throw new Error(`illustration segment for point #${segment.pointIndex ?? "?"} has no ffmpeg input`);
+  }
+  if (segment.mode === "animation_only") {
+    return `${sourceTrim},nullsink;` +
+      `[${segment.inputIndex}:v]trim=duration=${duration},setpts=PTS+${start}/TB,scale=${dims.w}:${dims.h}:force_original_aspect_ratio=increase,crop=${dims.w}:${dims.h}${subtitleStep},trim=start=${start}:end=${end},setpts=PTS-STARTPTS,setsar=1[${outputLabel}]`;
+  }
+  const halfW = Math.max(2, Math.floor(dims.w / 2 / 2) * 2);
+  const srcOut = `ill_src_side_${outputLabel}`;
+  const demoOut = `ill_demo_side_${outputLabel}`;
+  return `${sourceCaptionTrim},scale=${halfW}:${dims.h}:force_original_aspect_ratio=increase,crop=${halfW}:${dims.h},setsar=1[${srcOut}];` +
+    `[${segment.inputIndex}:v]trim=duration=${duration},setpts=PTS-STARTPTS,scale=${halfW}:${dims.h}:force_original_aspect_ratio=increase,crop=${halfW}:${dims.h},setsar=1[${demoOut}];` +
+    `[${srcOut}][${demoOut}]hstack=inputs=2[${outputLabel}]`;
 }
 
 function momentCropChain(

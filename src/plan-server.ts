@@ -27,6 +27,9 @@ import { PROJECT_META_FILE, loadProjectV2, type ProjectMeta, type SourceDescript
 import { materialiseVideoSubproject } from "./auto-match.js";
 import { prepareV2VideoForPlanning } from "./v2-plan-prep.js";
 import { buildPlanUi } from "./plan-builder.js";
+import { renderIllustrationVideo } from "./illustration-video.js";
+import { suggestIllustrationMoments, type IllustrationSuggestionMoment } from "./illustration-selection.js";
+import { aiCliAvailable, firstAvailableAiCliToolLabel, getCliProvider } from "./llm/index.js";
 
 export interface PlanServerHandle {
   port: number;
@@ -317,6 +320,87 @@ export async function handlePlanRequest(
         if (!existsSync(filePath)) { text(res, 404, "not found"); return true; }
         const ct = file.endsWith(".mp4") ? "video/mp4" : "audio/wav";
         streamFileWithRange(req, res, filePath, ct);
+        return true;
+      }
+
+      // ── API: ask the configured standalone AI provider which moments should
+      // receive Hyperframes illustration clips. The browser falls back to a
+      // local heuristic if no AI CLI is configured.
+      if (req.method === "POST" && pathname === "/api/illustration-suggest") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        let parsed: { moments?: IllustrationSuggestionMoment[]; max?: number; clip_title?: string };
+        try { parsed = JSON.parse(body || "{}"); }
+        catch { json(res, 400, { error: "bad JSON" }); return true; }
+        const moments = Array.isArray(parsed.moments) ? parsed.moments : [];
+        if (moments.length === 0) { json(res, 400, { error: "moments required" }); return true; }
+        if (!aiCliAvailable()) {
+          json(res, 503, { error: "no configured AI CLI is available for moment selection" });
+          return true;
+        }
+        try {
+          const selected = await suggestIllustrationMoments(getCliProvider(), {
+            moments,
+            max: parsed.max,
+            clipTitle: typeof parsed.clip_title === "string" ? parsed.clip_title : "",
+          });
+          json(res, 200, {
+            ok: true,
+            provider: firstAvailableAiCliToolLabel() || "configured AI CLI",
+            selected,
+          });
+        } catch (e) {
+          json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+        }
+        return true;
+      }
+
+      // ── API: generate/cache a Hyperframes illustration clip for one moment.
+      // The plan UI stores the returned relative video_path on points[].illustration;
+      // the final ffmpeg render only composes already-cached assets.
+      if (req.method === "POST" && pathname === "/api/illustration-generate") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        let parsed: { point_index?: number; prompt?: string; duration_ms?: number; force?: boolean };
+        try { parsed = JSON.parse(body || "{}"); }
+        catch { json(res, 400, { error: "bad JSON" }); return true; }
+        const pointIndex = Math.max(0, Math.round(Number(parsed.point_index || 0)));
+        const prompt = String(parsed.prompt || "").trim();
+        const durationMs = Math.max(1000, Math.round(Number(parsed.duration_ms || 0)));
+        if (!prompt) { json(res, 400, { error: "prompt required" }); return true; }
+        try {
+          const result = await renderIllustrationVideo(root, {
+            pointIndex,
+            prompt,
+            durationMs,
+            force: parsed.force === true,
+          });
+          json(res, 200, {
+            ok: true,
+            cache: result.cache,
+            prompt: result.prompt,
+            duration_ms: result.durationMs,
+            cache_key: result.cacheKey,
+            generated_at: result.generatedAt,
+            video_path: result.videoRelPath,
+            video_url: `${basePath}/illustrations/${encodeURIComponent(result.cacheKey)}/video.mp4`,
+          });
+        } catch (e) {
+          json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+        }
+        return true;
+      }
+
+      if (req.method === "GET" && pathname.startsWith("/illustrations/")) {
+        const parts = pathname.replace("/illustrations/", "").split("/");
+        if (parts.length !== 2) { text(res, 400, "bad request"); return true; }
+        const [key, file] = parts as [string, string];
+        if (!/^[a-f0-9]{24}$/.test(key) || file !== "video.mp4") { text(res, 400, "bad request"); return true; }
+        const dir = path.join(root, "cache", "illustrations", key);
+        const filePath = path.join(dir, file);
+        if (!withinRoot(filePath, dir)) { text(res, 403, "forbidden"); return true; }
+        if (!existsSync(filePath)) { text(res, 404, "not found"); return true; }
+        streamFileWithRange(req, res, filePath, "video/mp4");
         return true;
       }
 

@@ -1,0 +1,10 @@
+* May 10, 2026
+
+- New: dynamic illustration side video support added (via hyperframes)  (beta)
+![side illustration demo gif](docs/img/aicw-video-side-illustration.gif)
+
+- minor fixes
+
+* May 5, 2026
+
+Initial version

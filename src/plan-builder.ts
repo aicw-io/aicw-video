@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, writeFile, copyFile, link, unlink, rename } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,7 +37,66 @@ import {
 import { PROJECT_META_FILE, type ProjectMeta } from "./project-v2.js";
 
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
-const PLAN_UI_CACHE_VERSION = "plan-ui-v38";
+const PLAN_UI_CACHE_VERSION = "plan-ui-v52";
+const PACKAGE_ROOT = path.resolve(RUNTIME_DIR, "..");
+
+const FALLBACK_ILLUSTRATION_PROMPT_TEMPLATE = `Goal: Create one self-contained animated explanatory graphic for the selected video span.
+
+Clip:
+{{clip_title}}
+
+Duration:
+About {{duration_seconds}} seconds.
+
+Full source captions for context:
+{{clip_script}}
+
+Selected span to illustrate:
+{{moments}}
+
+Visual type:
+{{visual_type}}
+
+Visual items:
+{{visual_items}}
+
+Visual brief:
+{{visual_brief}}
+
+Rules:
+- Use exactly one visual type for now: graph or list.
+- Graph: show a chart, bars, counter, dashboard, or metric signal. If the captions contain numbers, units, percentages, dates, rates, or quantities, use them as readable labels.
+- List: show 2-4 key ideas, priorities, contrasts, or ordered points as large readable cards. Extract meaning from the source context, not only repeated words in the selected span.
+- Do not paste the spoken sentence as a headline. Use graphics first, with only short labels from Visual items when needed.
+- Do not make word clouds or keyword chips unless they are meaningful labels for a list item.
+- Keep the composition portrait-safe, high contrast, and simple enough to understand while the original audio plays.
+- Future visual types that are useful but not for this render: flow/process diagram, comparison/before-after.
+
+Style:
+Modern animated explainer, clear symbolic shapes, intentional motion, no photorealistic people, no clutter, no duplicate caption text.`;
+
+function illustrationPromptTemplatePath(): string {
+  const configured = config.illustrationPromptTemplatePath || "";
+  if (configured.trim()) {
+    return path.isAbsolute(configured) ? configured : path.join(PACKAGE_ROOT, configured);
+  }
+  return path.join(PACKAGE_ROOT, "config", "illustration-prompt-template.md");
+}
+
+function loadIllustrationPromptTemplate(): string {
+  const candidates = [
+    illustrationPromptTemplatePath(),
+    path.join(RUNTIME_DIR, "templates", "illustration-prompt-template.md"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) return readFileSync(candidate, "utf8").trim();
+    } catch {
+      // Fall through to the built-in template.
+    }
+  }
+  return FALLBACK_ILLUSTRATION_PROMPT_TEMPLATE;
+}
 
 // Caption style choices surfaced in the UI. Placement is explicit so preview
 // and final ASS rendering cannot disagree about top vs. bottom captions.
@@ -118,6 +177,8 @@ function planInputsKey(root: string, src: string): string {
     matchMeta: fileSig(path.join(root, ".match-meta.json")),
     styles: ALL_STYLES.join(","),
     localTailwind: fileSig(path.join(RUNTIME_DIR, "assets", "tailwind.css")) ?? "local-tailwind-v1",
+    illustrationPromptTemplatePath: illustrationPromptTemplatePath(),
+    illustrationPromptTemplate: fileSig(illustrationPromptTemplatePath()) ?? "illustration-prompt-template-v1",
   });
 }
 
@@ -820,6 +881,7 @@ function buildHtml(args: {
   ].filter(Boolean).join(" · ");
   const sourceAnalysisHtml = sourceAnalysisSummaryHtml(args.points);
   const sourceFolderInfoHtml = sourceFolderHtml(args.projectPath);
+  const illustrationPromptTemplate = loadIllustrationPromptTemplate();
 
   // For each suggestion, find the nearest point indices for its start/end —
   // these become the clip's snappable in/out anchors. If no points exist
@@ -911,6 +973,7 @@ function buildHtml(args: {
     ])),
     defaultTtsVoice: DEFAULT_TTS_VOICE,
     ttsVoices: args.ttsVoices,
+    illustrationPromptTemplate,
   });
 
   return `<!DOCTYPE html>
@@ -1158,6 +1221,7 @@ function clipCardHtml(
         <div class="clip-range">
           <div class="clip-video-wrap">
             <video class="clip-player" preload="metadata" controls playsinline></video>
+            <video class="clip-illustration-player" preload="metadata" muted playsinline aria-hidden="true"></video>
             <div class="caption-overlay" data-style="bold-white-bottom" data-style-base="bold-white" data-placement="bottom" aria-hidden="true"></div>
             <div class="face-emoji-overlay" aria-hidden="true"></div>
           </div>
@@ -1201,9 +1265,30 @@ function clipCardHtml(
         </div>
       </div>
       <div class="layout-splitter clip-splitter" data-splitter="clip" role="separator" aria-orientation="vertical" tabindex="0" title="Resize video and captions"></div>
-      <div class="clip-grid-right">
-        <div class="moments-header"><span class="moments-label">Moments &amp; captions</span><span class="moments-hint">Move markers on the trackbar to include or exclude moments.</span></div>
-        <div class="point-captions" data-clip="${escapeHtml(c.id)}"></div>
+      <div class="clip-grid-right" data-right-tab="captions">
+        <div class="right-pane-tabs" role="tablist" aria-label="Moment editor">
+          <button class="right-pane-tab active" type="button" data-right-tab="captions">Captions</button>
+          <button class="right-pane-tab" type="button" data-right-tab="illustrations">Illustrations</button>
+        </div>
+        <div class="right-pane-panel right-pane-captions active">
+          <div class="moments-header">
+            <div class="moments-title-row"><span class="moments-label">Moments &amp; captions</span></div>
+            <span class="moments-hint">Move markers on the trackbar to include or exclude moments.</span>
+          </div>
+          <div class="point-captions" data-clip="${escapeHtml(c.id)}"></div>
+        </div>
+        <div class="right-pane-panel right-pane-illustrations">
+          <div class="illustrations-header">
+            <div class="illustrations-title-row">
+              <span class="illustrations-label">Illustrations</span>
+              <span class="illustrations-actions"><button class="moments-select-suggested" type="button">Select suggested</button><button class="moments-generate-selected" type="button">Generate selected</button></span>
+            </div>
+            <div class="illustrations-toolbar">
+              <span class="illustrations-hint hint-small">Choose mode and cached animation asset per moment. Reusing the same asset on adjacent moments continues it instead of restarting it.</span>
+            </div>
+          </div>
+          <div class="point-illustrations" data-clip="${escapeHtml(c.id)}"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -1413,6 +1498,7 @@ function mergeExistingPointEdits(points: Point[], existing: Point[]): void {
     if (!p.original_text && prev.original_text) p.original_text = prev.original_text;
     if (!p.visual_metadata && prev.visual_metadata) p.visual_metadata = prev.visual_metadata;
     if (prev.crop) p.crop = prev.crop;
+    if (prev.illustration) p.illustration = prev.illustration;
   }
 }
 
@@ -1704,10 +1790,19 @@ body.drawer-open .drawer{transform:translateX(0)}
 .clip-grid-right{height:var(--clip-grid-h,520px);display:flex;flex-direction:column;overflow:hidden}
 .clip-grid-right .section-h{margin-top:0}
 .clip-grid-right .moments-header{display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin:0 0 .55em}
+.clip-grid-right .moments-title-row{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
 .clip-grid-right .moments-label{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .clip-grid-right .moments-hint{font-size:.78em;color:var(--muted);font-weight:400;line-height:1.35}
-.clip-grid-right .point-captions{flex:1;min-height:0;overflow-y:auto;padding-right:4px}
-@media(max-width:900px){.clip-grid{grid-template-columns:1fr}.clip-grid .layout-splitter{display:none}.clip-grid-right{height:auto;overflow:visible}.clip-grid-right .point-captions{max-height:none;overflow:visible}}
+.clip-grid-right .moments-actions{margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.clip-grid-right .moments-actions button{appearance:none;background:var(--surface);color:var(--brand);border:1px solid var(--border);border-radius:6px;padding:.32em .6em;font-size:.74em;font-weight:700;cursor:pointer}
+.clip-grid-right .moments-actions button:hover:not(:disabled){background:var(--brand-soft);border-color:var(--brand)}
+.clip-grid-right .moments-actions button:disabled{opacity:.62;cursor:wait}
+.clip-grid-right .right-pane-panel{display:none;flex:1;min-height:0;flex-direction:column}
+.clip-grid-right[data-right-tab="captions"] .right-pane-captions{display:flex}
+.clip-grid-right[data-right-tab="illustrations"] .right-pane-illustrations{display:flex}
+.clip-grid-right .point-captions,
+.clip-grid-right .point-illustrations{flex:1;min-height:0;overflow-y:auto;padding-right:4px}
+@media(max-width:900px){.clip-grid{grid-template-columns:1fr}.clip-grid .layout-splitter{display:none}.clip-grid-right{height:auto;overflow:visible}.clip-grid-right .right-pane-panel{min-height:0}.clip-grid-right .point-captions,.clip-grid-right .point-illustrations{max-height:none;overflow:visible}}
 
 /* Drag splitters for side-by-side review panes. */
 .layout-splitter{position:relative;align-self:stretch;min-height:120px;border:0;background:transparent;border-radius:8px;cursor:col-resize;touch-action:none;display:flex;align-items:center;justify-content:center;color:var(--muted)}
@@ -1716,6 +1811,20 @@ body.drawer-open .drawer{transform:translateX(0)}
 .layout-splitter:hover::before,.layout-splitter:focus-visible::before,.layout-splitter.dragging::before{background:var(--brand);opacity:1}
 .layout-splitter:hover::after,.layout-splitter:focus-visible::after,.layout-splitter.dragging::after{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
 body.is-resizing,body.is-resizing *{cursor:col-resize!important;user-select:none!important}
+/* Right-side moment editor tabs (Captions | Illustrations) */
+.right-pane-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:0 0 10px}
+.right-pane-tab{appearance:none;background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;border-radius:0;padding:.42em .72em;font-size:.82em;font-weight:600;cursor:pointer;font-family:inherit}
+.right-pane-tab:hover{color:var(--ink)}
+.right-pane-tab.active{color:var(--ink);border-bottom-color:var(--brand)}
+.illustrations-header{margin-bottom:8px}
+.illustrations-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.illustrations-label{font-size:.84em;font-weight:760;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.illustrations-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.illustrations-actions button{appearance:none;background:var(--surface);color:var(--brand);border:1px solid var(--border);border-radius:6px;padding:.34em .68em;font-size:.78em;font-weight:730;cursor:pointer}
+.illustrations-actions button:hover:not(:disabled){background:var(--brand-soft);border-color:var(--brand)}
+.illustrations-actions button:disabled{opacity:.62;cursor:wait}
+.illustrations-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.illustrations-hint{flex:1;min-width:180px;line-height:1.35}
 /* Inner clip tabs (Clip | Rendered (N)) */
 .clip-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:0 0 14px}
 .clip-tab{appearance:none;background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;border-radius:0;padding:.45em .85em;font-size:.85em;font-weight:500;cursor:pointer;font-family:inherit}
@@ -1801,6 +1910,10 @@ body.is-resizing,body.is-resizing *{cursor:col-resize!important;user-select:none
 .point-caption .pt-time{color:var(--muted);font-size:.82em}
 .point-caption .pt-span{color:var(--muted);font-size:.78em}
 .point-caption .pt-thumb-wrap{position:relative;width:120px;align-self:start}
+.point-caption .pt-illustration-pick{appearance:none;position:absolute;left:5px;top:5px;z-index:4;width:28px;height:28px;border:1px solid rgba(37,99,235,.45);border-radius:6px;background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.24);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.point-caption .pt-illustration-pick input{position:absolute;opacity:0;pointer-events:none}
+.point-caption .pt-illustration-pick span{width:16px;height:16px;border:2px solid #2563eb;border-radius:4px;background:#fff;display:block}
+.point-caption .pt-illustration-pick input:checked + span{background:#2563eb;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='5 12 10 17 19 7'/></svg>");background-size:12px 12px;background-repeat:no-repeat;background-position:center}
 .point-caption .pt-crop-toggle{appearance:none;position:absolute;top:5px;right:5px;z-index:3;background:rgba(255,255,255,.92);color:#2563eb;border:1px solid rgba(37,99,235,.45);border-radius:6px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.24)}
 .point-caption .pt-crop-toggle svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .point-caption .pt-crop-toggle:hover,.point-caption .pt-crop-toggle[aria-expanded="true"]{background:#fff;color:#1d4ed8;border-color:#2563eb}
@@ -1811,6 +1924,20 @@ body.is-resizing,body.is-resizing *{cursor:col-resize!important;user-select:none
 .point-caption .pt-thumb:hover{outline:2px solid var(--brand);outline-offset:1px}
 .point-caption .pt-edit{display:flex;flex-direction:column;gap:8px;min-width:0}
 .point-caption textarea{width:100%;height:100%;min-height:96px;background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:.5em .65em;font-size:.9em;line-height:1.45;resize:vertical}
+.point-caption .pt-meta-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.point-caption .pt-illustration-badge,
+.point-illustration .ill-badge{display:inline-flex;align-items:center;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--muted);padding:.14em .55em;font-size:.72em;font-weight:720;line-height:1.2}
+.point-caption .pt-illustration-badge.is-active,
+.point-illustration .ill-badge.is-active{background:var(--brand-soft);border-color:rgba(37,99,235,.35);color:var(--brand)}
+.point-caption .pt-illustration-badge.is-missing,
+.point-illustration .ill-badge.is-missing{background:#fff7ed;border-color:#fed7aa;color:#b45309}
+.point-caption .pt-illustration-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.point-caption .pt-illustration-row label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:.78em;font-weight:650}
+.point-caption .pt-illustration-row select{appearance:none;background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:.34em 1.4em .34em .5em;font:inherit;font-weight:650}
+.point-caption .pt-illustration-row button{appearance:none;background:var(--surface);color:var(--brand);border:1px solid var(--border);border-radius:6px;padding:.36em .7em;font-size:.78em;font-weight:700;cursor:pointer}
+.point-caption .pt-illustration-row button:hover:not(:disabled){background:var(--brand-soft);border-color:var(--brand)}
+.point-caption .pt-illustration-row button:disabled{opacity:.62;cursor:wait}
+.point-caption .pt-illustration-status{min-width:96px;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
 .point-caption .pt-crop-panel{position:absolute;right:10px;top:38px;z-index:25;width:min(520px,calc(100vw - 48px));background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;box-shadow:var(--shadow-elev)}
 .point-caption .pt-crop-stage{position:relative;width:min(100%,420px);aspect-ratio:16/9;background:#050505;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;touch-action:none;user-select:none}
 .point-caption .pt-crop-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
@@ -1823,9 +1950,47 @@ body.is-resizing,body.is-resizing *{cursor:col-resize!important;user-select:none
 .point-caption .pt-crop-actions{display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-top:7px}
 .point-caption .pt-crop-actions button{font-size:.74em;padding:.35em .6em;border-radius:6px}
 .point-captions-empty{color:var(--muted);font-size:.85em;background:var(--surface-2);border:1px dashed var(--border-strong);border-radius:8px;padding:.7em}
+.point-illustrations{display:flex;flex-direction:column;gap:8px}
+.point-illustration{position:relative;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.point-illustration .ill-body{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:stretch}
+.point-illustration .ill-media{display:flex;flex-direction:column;gap:6px;min-width:0}
+.point-illustration .ill-thumb-wrap{position:relative;width:120px;aspect-ratio:16/9;align-self:start}
+.point-illustration .ill-thumb,
+.point-illustration .ill-thumb-video{width:100%;aspect-ratio:16/9;border-radius:6px;background:#000;display:block;object-fit:cover}
+.point-illustration .ill-thumb-video{position:absolute;inset:0;height:100%}
+.point-illustration .ill-empty-thumb{appearance:none;width:100%;aspect-ratio:16/9;border-radius:6px;border:1px dashed var(--border-strong);background:var(--surface);color:var(--muted);font:inherit;font-size:.72em;font-weight:750;line-height:1.2;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px;cursor:pointer}
+.point-illustration .ill-empty-thumb:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
+.point-illustration.is-inherited{border-color:rgba(37,99,235,.22);background:rgba(37,99,235,.04)}
+.point-illustration .pt-illustration-pick{appearance:none;position:absolute;left:5px;top:5px;z-index:4;width:28px;height:28px;border:1px solid rgba(37,99,235,.45);border-radius:6px;background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.24);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.point-illustration .pt-illustration-pick input{position:absolute;opacity:0;pointer-events:none}
+.point-illustration .pt-illustration-pick span{width:16px;height:16px;border:2px solid #2563eb;border-radius:4px;background:#fff;display:block}
+.point-illustration .pt-illustration-pick input:checked + span{background:#2563eb;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='5 12 10 17 19 7'/></svg>");background-size:12px 12px;background-repeat:no-repeat;background-position:center}
+.point-illustration .ill-head{display:flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums;line-height:1.15;min-width:0}
+.point-illustration .ill-num{color:var(--accent);font-weight:600;font-size:.88em}
+.point-illustration .ill-time,
+.point-illustration .ill-span{color:var(--muted);font-size:.82em}
+.point-illustration .ill-edit{display:flex;flex-direction:column;gap:8px;min-width:0}
+.point-illustration .ill-title-row{display:flex;align-items:center;gap:8px;min-width:0}
+.point-illustration .ill-text{margin:0;color:var(--ink);font-size:.82em;line-height:1.28;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.point-illustration .ill-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.point-illustration .ill-controls label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:.78em;font-weight:650}
+.point-illustration .ill-row-status{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:.78em;font-weight:730;white-space:nowrap}
+.point-illustration .ill-row-status.is-active{color:var(--brand)}
+.point-illustration .ill-row-status.is-missing{color:#b45309}
+.point-illustration .ill-row-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.point-illustration .ill-preview-btn{appearance:none;background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:.34em .65em;font-size:.78em;font-weight:700;cursor:pointer}
+.point-illustration .ill-preview-btn:hover{background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
+.point-illustration .pt-illustration-mode{appearance:none;background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:.34em 1.4em .34em .5em;font:inherit;font-weight:650}
+.point-illustration .pt-illustration-asset{appearance:none;background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:.34em 1.4em .34em .5em;font:inherit;font-weight:650;max-width:260px}
+.point-illustration .pt-illustration-generate{appearance:none;background:var(--surface);color:var(--brand);border:1px solid var(--border);border-radius:6px;padding:.36em .7em;font-size:.78em;font-weight:700;cursor:pointer}
+.point-illustration .pt-illustration-generate:hover:not(:disabled){background:var(--brand-soft);border-color:var(--brand)}
+.point-illustration .pt-illustration-generate:disabled{opacity:.62;cursor:wait}
+.point-illustration .pt-illustration-status{display:none}
 @media(max-width:640px){
   .point-caption .pt-body{grid-template-columns:96px 1fr}
   .point-caption .pt-thumb-wrap{width:96px}
+  .point-illustration .ill-body{grid-template-columns:96px 1fr}
+  .point-illustration .ill-thumb-wrap{width:96px}
   .point-caption .pt-crop-panel{position:static;width:100%;margin-top:8px}
 }
 
@@ -1844,6 +2009,17 @@ body.is-resizing,body.is-resizing *{cursor:col-resize!important;user-select:none
 .clip-range{margin-bottom:.5em}
 .clip-player{width:100%;height:auto;background:#000;border-radius:10px;display:block}
 .clip-video-wrap{position:relative;container-type:inline-size;overflow:hidden;border-radius:10px}
+.clip-illustration-player{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:2;pointer-events:none}
+.clip-video-wrap[data-illustration-mode]{background:#000;aspect-ratio:16/9}
+.clip-video-wrap[data-illustration-mode] .clip-player{position:absolute;top:0;left:0;height:100%;border-radius:0}
+.clip-video-wrap[data-illustration-mode] .clip-player::-webkit-media-controls-panel{display:none!important}
+.clip-video-wrap[data-illustration-mode="side_by_side"] .clip-player{width:50%;object-fit:cover}
+.clip-video-wrap[data-illustration-mode="side_by_side"] .clip-illustration-player{display:block;left:50%;right:auto;width:50%}
+.clip-video-wrap[data-illustration-mode="side_by_side"] .caption-overlay{left:4%;right:54%}
+.clip-video-wrap[data-illustration-mode="side_by_side"] .face-emoji-overlay{right:50%;width:50%}
+.clip-video-wrap[data-illustration-mode="animation_only"] .clip-player{width:100%;opacity:0}
+.clip-video-wrap[data-illustration-mode="animation_only"] .clip-illustration-player{display:block}
+.clip-video-wrap[data-illustration-mode="animation_only"] .face-emoji-overlay{display:none}
 .clip-video-wrap[data-preview-aspect]{background:#000;border-radius:10px;overflow:hidden;margin-inline:auto;box-shadow:var(--shadow)}
 .clip-video-wrap[data-preview-aspect="9:16"]{width:min(100%,420px);aspect-ratio:9/16}
 .clip-video-wrap[data-preview-aspect="1:1"]{width:min(100%,620px);aspect-ratio:1/1}
@@ -1851,6 +2027,10 @@ body.is-resizing,body.is-resizing *{cursor:col-resize!important;user-select:none
 .clip-video-wrap[data-preview-aspect="16:9"]{width:100%;aspect-ratio:16/9}
 .clip-video-wrap[data-preview-aspect] .clip-player{width:100%;height:100%;aspect-ratio:auto;border-radius:0;object-fit:contain}
 .clip-video-wrap[data-preview-aspect][data-crop-preview="1"] .clip-player{object-fit:cover}
+.clip-video-wrap[data-preview-aspect][data-illustration-mode="side_by_side"] .clip-player{width:50%;height:100%;object-fit:cover}
+.clip-video-wrap[data-preview-aspect][data-illustration-mode="side_by_side"] .clip-illustration-player{left:50%;width:50%;height:100%;object-fit:cover}
+.clip-video-wrap[data-preview-aspect][data-illustration-mode="animation_only"] .clip-player{width:100%;opacity:0}
+.clip-video-wrap[data-preview-aspect][data-illustration-mode="animation_only"] .clip-illustration-player{width:100%;height:100%;object-fit:cover}
 .clip-video-wrap .clip-player,.clip-video-wrap .face-emoji-overlay{transform-origin:0 0}
 .clip-preview-controls{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
 .clip-preview-format,.clip-crop-toggle{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:.34em .55em;font-size:.76em;font-weight:650}
@@ -2012,6 +2192,40 @@ body.is-resizing,body.is-resizing *{cursor:col-resize!important;user-select:none
   .render-modal.rendering .rm-pane{height:calc(100dvh - 18px);max-height:calc(100dvh - 18px);margin:9px auto}
 }
 
+/* Illustration prompt dialog */
+.ill-modal{position:fixed;inset:0;z-index:60}
+.ill-modal[hidden]{display:none}
+.ill-modal .ill-overlay{position:absolute;inset:0;background:rgba(0,0,0,.42)}
+.ill-modal .ill-pane{position:relative;width:min(900px,calc(100vw - 28px));margin:4vh auto 0;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-elev);padding:18px 20px;display:flex;flex-direction:column;gap:12px;max-height:92vh;overflow:auto}
+.ill-modal .ill-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ill-modal .ill-head h3{margin:0;font-size:1.05rem;font-weight:600;color:var(--ink);letter-spacing:0}
+.ill-modal .ill-sub{margin:0;color:var(--muted);font-size:.86em}
+.ill-modal .ill-grid{display:grid;grid-template-columns:300px 1fr;gap:12px;min-height:0}
+.ill-modal .ill-panel{border:1px solid var(--border);border-radius:8px;background:var(--surface-2);padding:10px;min-width:0}
+.ill-modal .ill-panel h4{margin:0 0 8px;color:var(--muted);font-size:.72em;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.ill-modal .ill-moments{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto}
+.ill-modal .ill-moment{display:grid;grid-template-columns:auto 1fr;gap:7px;font-size:.78em;line-height:1.3;color:var(--ink)}
+.ill-modal .ill-moment-num{font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
+.ill-modal .ill-meta-line{margin:0 0 10px;color:var(--muted);font-size:.78em;font-weight:650}
+.ill-modal .ill-guidance{margin:0;color:var(--muted);font-size:.78em;line-height:1.45;white-space:pre-wrap}
+.ill-modal .ill-edit-panel{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ill-modal .ill-edit-panel label{color:var(--muted);font-size:.72em;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.ill-modal textarea{width:100%;min-height:300px;resize:vertical;background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:.7em .8em;font:inherit;font-size:.9em;line-height:1.45}
+.ill-modal textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.ill-modal .ill-foot{display:flex;justify-content:flex-end;gap:10px;padding-top:4px}
+.ill-modal .ill-foot button{appearance:none;border:1px solid var(--border);border-radius:8px;padding:.55em 1.1em;font-weight:600;font-size:.92em;cursor:pointer;font-family:inherit}
+.ill-modal .ill-use-previous{margin-right:auto;background:var(--surface);color:var(--brand)}
+.ill-modal .ill-use-previous:hover{background:var(--brand-soft);border-color:var(--brand)}
+.ill-modal .ill-cancel{background:var(--surface);color:var(--muted)}
+.ill-modal .ill-cancel:hover{background:var(--surface-2);color:var(--ink)}
+.ill-modal .ill-ok{background:var(--brand);color:#fff;border-color:transparent}
+.ill-modal .ill-ok:hover{filter:brightness(1.07)}
+@media(max-width:680px){
+  .ill-modal .ill-grid{grid-template-columns:1fr}
+  .ill-modal .ill-pane{margin:2vh auto 0;max-height:96vh}
+  .ill-modal textarea{min-height:34vh}
+}
+
 /* Plan-json preview inside drawer */
 .json-preview{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:.7em;max-height:260px;overflow:auto;font-size:.76em;white-space:pre-wrap;word-break:break-word;font-family:"SF Mono",Menlo,Consolas,monospace}
 `;
@@ -2123,6 +2337,7 @@ const JS = `
   // clips and the Rendered-clips render-card previews too.
   function pauseOtherMedia(active){
     document.querySelectorAll('video,audio').forEach(function(m){
+      if(active && active.closest && m.closest && active.closest('.clip-card') && active.closest('.clip-card') === m.closest('.clip-card')) return;
       if(m !== active && !m.paused){ try { m.pause(); } catch(_){} }
     });
   }
@@ -2303,6 +2518,7 @@ const JS = `
   var POINT_FRAMES = STATE.pointFrames || {};
   var pointById = {};
   var VOICE_PREVIEW_SAMPLE_MS = 3000;
+  var ILLUSTRATION_MIN_MS = 5000;
   POINTS.forEach(function(p){ pointById[p.index] = p; });
 
   (function setupReanalyzeVideo(){
@@ -2671,6 +2887,769 @@ const JS = `
     }
     return null;
   }
+  function normalizeIllustrationModeClient(value){
+    if(value === 'demo_only') return 'animation_only';
+    return value === 'side_by_side' || value === 'animation_only' ? value : 'none';
+  }
+  function ensurePointIllustration(point){
+    if(!point.illustration || typeof point.illustration !== 'object') point.illustration = { mode:'none' };
+    point.illustration.mode = normalizeIllustrationModeClient(point.illustration.mode);
+    return point.illustration;
+  }
+  function readPointIllustration(point){
+    var ill = point && point.illustration && typeof point.illustration === 'object' ? point.illustration : null;
+    if(!ill) return { mode:'none' };
+    var view = {};
+    Object.keys(ill).forEach(function(k){ view[k] = ill[k]; });
+    view.mode = normalizeIllustrationModeClient(view.mode);
+    return view;
+  }
+  function illustrationAssetKeyFrom(ill){
+    if(!ill || typeof ill !== 'object') return '';
+    return String(ill.cache_key || ill.video_path || '').trim();
+  }
+  function sameIllustrationAsset(a, b){
+    return !!a && !!b && a === b;
+  }
+  function illustrationAssetBaseLabel(sourcePointIndex, durationMs){
+    var pointLabel = Number.isFinite(sourcePointIndex) ? ('moment_' + sourcePointIndex) : 'asset';
+    var duration = Number.isFinite(durationMs) ? ('_' + Math.max(1, durationMs / 1000).toFixed(1).replace(/\\.0$/, '') + 's') : '';
+    return 'animation_' + pointLabel + duration;
+  }
+  function parseIllustrationAssetVersion(label){
+    var m = String(label || '').match(/_(?:ver|v)_?(\\d+)$/i);
+    return m ? Math.max(1, parseInt(m[1], 10) || 1) : 1;
+  }
+  function stripIllustrationAssetVersion(label){
+    return String(label || '').replace(/_(?:ver|v)_?\\d+$/i, '');
+  }
+  function illustrationAssetLabel(asset){
+    if(!asset) return 'No animation selected';
+    var base = asset.asset_label ? stripIllustrationAssetVersion(asset.asset_label) : illustrationAssetBaseLabel(asset.source_point_index, asset.duration_ms);
+    return base + '_ver_' + parseIllustrationAssetVersion(asset.asset_label);
+  }
+  function nextIllustrationAssetLabel(card, point, durationMs){
+    var base = illustrationAssetBaseLabel(point.index, durationMs);
+    var maxVer = 0;
+    illustrationAssetsForCard(card).forEach(function(asset){
+      if(stripIllustrationAssetVersion(asset.asset_label || illustrationAssetBaseLabel(asset.source_point_index, asset.duration_ms)) === base){
+        maxVer = Math.max(maxVer, parseIllustrationAssetVersion(asset.asset_label));
+      }
+    });
+    return base + '_ver_' + Math.max(1, maxVer + 1);
+  }
+  function compactIllustrationAssetLabel(asset){
+    if(!asset) return 'No animation';
+    var label = illustrationAssetLabel(asset);
+    if(label.length <= 34) return label;
+    return label.slice(0, 31) + '...';
+  }
+  function shortIllustrationAssetLabel(asset){
+    if(!asset) return 'No asset';
+    var label = illustrationAssetLabel(asset);
+    return label.length <= 26 ? label : label.slice(0, 23) + '...';
+  }
+  function illustrationAssetsForCard(card){
+    var byKey = new Map();
+    POINTS.forEach(function(point){
+      var ill = readPointIllustration(point);
+      var key = illustrationAssetKeyFrom(ill);
+      if(!key || !ill.video_path) return;
+      if(byKey.has(key)) return;
+      byKey.set(key, {
+        key: key,
+        cache_key: ill.cache_key || '',
+        video_path: ill.video_path || '',
+        prompt: ill.prompt || '',
+        duration_ms: Math.max(1000, Number(ill.duration_ms || ILLUSTRATION_MIN_MS)),
+        generated_at: ill.generated_at || '',
+        source_point_index: Number.isFinite(ill.source_point_index) ? Number(ill.source_point_index) : point.index,
+        source_ts_ms: Number.isFinite(ill.source_ts_ms) ? Number(ill.source_ts_ms) : point.ts_ms,
+        asset_label: ill.asset_label || ''
+      });
+    });
+    return Array.from(byKey.values()).sort(function(a, b){
+      return (a.source_ts_ms || 0) - (b.source_ts_ms || 0) || String(a.key).localeCompare(String(b.key));
+    });
+  }
+  function findIllustrationAssetByKey(card, key){
+    if(!key) return null;
+    var assets = illustrationAssetsForCard(card);
+    for(var i = 0; i < assets.length; i++){
+      if(assets[i].key === key) return assets[i];
+    }
+    return null;
+  }
+  function applyIllustrationAssetToPoint(point, asset){
+    if(!point || !asset) return;
+    var ill = ensurePointIllustration(point);
+    ill.video_path = asset.video_path || '';
+    ill.cache_key = asset.cache_key || '';
+    ill.prompt = asset.prompt || ill.prompt || '';
+    ill.duration_ms = asset.duration_ms || ill.duration_ms || ILLUSTRATION_MIN_MS;
+    ill.generated_at = asset.generated_at || ill.generated_at || '';
+    ill.source_point_index = Number.isFinite(asset.source_point_index) ? asset.source_point_index : point.index;
+    ill.source_ts_ms = Number.isFinite(asset.source_ts_ms) ? asset.source_ts_ms : point.ts_ms;
+    ill.asset_label = asset.asset_label || illustrationAssetLabel(asset);
+    ill.explicit = true;
+  }
+  function generatedIllustrationAssetForPoint(point, ill){
+    var durationMs = Math.max(1000, Number(ill.duration_ms || ILLUSTRATION_MIN_MS));
+    var sourcePointIndex = Number.isFinite(ill.source_point_index) ? Number(ill.source_point_index) : point.index;
+    var sourceTsMs = Number.isFinite(ill.source_ts_ms) ? Number(ill.source_ts_ms) : point.ts_ms;
+    return {
+      key: illustrationAssetKeyFrom(ill),
+      cache_key: ill.cache_key || '',
+      video_path: ill.video_path || '',
+      prompt: ill.prompt || '',
+      duration_ms: durationMs,
+      generated_at: ill.generated_at || '',
+      source_point_index: sourcePointIndex,
+      source_ts_ms: sourceTsMs,
+      asset_label: ill.asset_label || illustrationAssetBaseLabel(sourcePointIndex, durationMs)
+    };
+  }
+  function previousIllustrationPointInCard(card, point){
+    var pts = pointsForClip(card);
+    var prev = null;
+    for(var i = 0; i < pts.length; i++){
+      if(pts[i].index === point.index) return prev;
+      prev = pts[i];
+    }
+    return null;
+  }
+  function isContinuationPoint(card, point){
+    var effective = effectiveIllustrationForPoint(card, point);
+    if(effective.inherited) return true;
+    var ill = effective.ill;
+    var mode = normalizeIllustrationModeClient(effective.mode);
+    var key = effective.assetKey;
+    if(mode === 'none' || !key) return false;
+    var prev = previousIllustrationPointInCard(card, point);
+    if(!prev) return false;
+    var prevEffective = effectiveIllustrationForPoint(card, prev);
+    return normalizeIllustrationModeClient(prevEffective.mode) === mode && sameIllustrationAsset(prevEffective.assetKey, key);
+  }
+  function isIllustrationTimelineEventClient(ill){
+    if(!ill || typeof ill !== 'object') return false;
+    return normalizeIllustrationModeClient(ill.mode) !== 'none' || ill.explicit === true;
+  }
+  function illustrationModeLabel(mode){
+    mode = normalizeIllustrationModeClient(mode);
+    if(mode === 'side_by_side') return 'Side by side';
+    if(mode === 'animation_only') return 'Animation only';
+    return 'Original only';
+  }
+  function illustrationStatusForPoint(point, card){
+    var effective = effectiveIllustrationForPoint(card, point);
+    var ill = effective.ill;
+    var mode = normalizeIllustrationModeClient(effective.mode);
+    var hasVideo = !!(effective.asset && effective.asset.video_path);
+    if(mode === 'none') return { text:'Animation off', className:'', title:'Original video only' };
+    if(hasVideo){
+      var prefix = effective.inherited || isContinuationPoint(card, point) ? 'Continue' : illustrationModeLabel(mode);
+      return { text: prefix + ' · ' + shortIllustrationAssetLabel(effective.asset), className:'is-active', title: effective.inherited ? 'This moment continues the previous animation asset' : 'Cached animation is ready' };
+    }
+    return { text: illustrationModeLabel(mode) + ' · needs generation', className:'is-missing', title:'Generate the animation before rendering this mode' };
+  }
+  function illustrationBadgeHtml(point, className, card){
+    var st = illustrationStatusForPoint(point, card);
+    return '<span class="' + className + (st.className ? ' ' + st.className : '') + '" title="' + escHtml(st.title) + '">' + escHtml(st.text) + '</span>';
+  }
+  function defaultIllustrationModeForNewSelection(card){
+    return 'side_by_side';
+  }
+  function shortMomentLabel(value, maxWords){
+    var words = String(value || '').replace(/\\s+/g, ' ').trim().split(' ').filter(Boolean);
+    if(words.length <= maxWords) return words.join(' ');
+    return words.slice(0, maxWords).join(' ') + '...';
+  }
+  function cleanMultilinePrompt(value){
+    return String(value || '')
+      .replace(/\\r\\n?/g, '\\n')
+      .replace(/[ \\t]+\\n/g, '\\n')
+      .replace(/\\n{3,}/g, '\\n\\n')
+      .trim();
+  }
+  function illustrationPromptTemplate(){
+    var configured = cleanMultilinePrompt(STATE.illustrationPromptTemplate || '');
+    if(configured) return configured;
+    return [
+      'Goal: Create one self-contained animated explanatory graphic for the selected video span.',
+      '',
+      'Clip:',
+      '{{clip_title}}',
+      '',
+      'Duration:',
+      'About {{duration_seconds}} seconds.',
+      '',
+      'Full source captions for context:',
+      '{{clip_script}}',
+      '',
+      'Selected span to illustrate:',
+      '{{moments}}',
+      '',
+      'Visual type:',
+      '{{visual_type}}',
+      '',
+      'Visual items:',
+      '{{visual_items}}',
+      '',
+      'Visual brief:',
+      '{{visual_brief}}',
+      '',
+      'Rules:',
+      '- Use exactly one visual type for now: graph or list.',
+      '- Graph: show a chart, bars, counter, dashboard, or metric signal. If the captions contain numbers, units, percentages, dates, rates, or quantities, use them as readable labels.',
+      '- List: show 2-4 key ideas, priorities, contrasts, or ordered points as large readable cards. Extract meaning from the source context, not only repeated words in the selected span.',
+      '- Do not paste the spoken sentence as a headline. Use graphics first, with only short labels from Visual items when needed.',
+      '- Do not make word clouds or keyword chips unless they are meaningful labels for a list item.',
+      '- Keep the composition portrait-safe, high contrast, and simple enough to understand while the original audio plays.',
+      '- Future visual types that are useful but not for this render: flow/process diagram, comparison/before-after.',
+      '',
+      'Style:',
+      'Modern animated explainer, clear symbolic shapes, intentional motion, no photorealistic people, no clutter, no duplicate caption text.'
+    ].join('\\n');
+  }
+  function fillIllustrationPromptTemplate(template, values){
+    var momentsText = formatIllustrationMomentLines(values.moments || [], values.subject || '');
+    var clipScriptText = formatIllustrationMomentLines(values.clipMoments || values.moments || [], '', 3200);
+    var out = String(template || '');
+    var replacements = {
+      clip_title: values.clipTitle || 'Untitled clip',
+      duration_seconds: values.durationSeconds,
+      clip_script: clipScriptText || '- No full clip captions available.',
+      moments: momentsText,
+      selected_moments: momentsText,
+      moment_text: values.subject,
+      visual_guidance: values.guidance,
+      visual_type: values.visualType || 'list',
+      visual_items: values.visualItemsText || '- Main idea',
+      visual_brief: values.visualBrief || values.guidance || ''
+    };
+    Object.keys(replacements).forEach(function(key){
+      out = out.replace(new RegExp('\\\\{\\\\{\\\\s*' + key + '\\\\s*\\\\}\\\\}', 'gi'), function(){ return String(replacements[key] || ''); });
+    });
+    return cleanMultilinePrompt(out);
+  }
+  function formatIllustrationMomentLines(moments, fallback, maxChars){
+    var lines = (moments || []).filter(function(m){ return m && m.text; }).map(function(m){
+      return '- #' + m.index + ' at ' + fmtSecs(m.ts_ms / 1000) + ': ' + m.text;
+    });
+    if(!lines.length && fallback) lines = ['- ' + fallback];
+    var text = lines.join('\\n');
+    maxChars = maxChars || 1800;
+    if(text.length <= maxChars) return text;
+    return text.slice(0, maxChars).replace(/\\s+\\S*$/, '') + '\\n- ...';
+  }
+  function clipScriptMomentsForCard(card){
+    return pointsForClip(card).map(function(p){
+      return {
+        index: p.index,
+        ts_ms: p.ts_ms,
+        text: String(p.original_text || p.caption || '').replace(/\\s+/g, ' ').trim()
+      };
+    }).filter(function(m){ return m.text; });
+  }
+  function sourceScriptMoments(){
+    return POINTS.map(function(p){
+      return {
+        index: p.index,
+        ts_ms: p.ts_ms,
+        text: String(p.original_text || p.caption || '').replace(/\\s+/g, ' ').trim()
+      };
+    }).filter(function(m){ return m.text; });
+  }
+  function promptTextFromMoments(moments){
+    return (moments || []).map(function(m){ return m && m.text ? m.text : ''; }).join(' ').replace(/\\s+/g, ' ').trim();
+  }
+  function uniquePromptItems(items){
+    var out = [];
+    (items || []).forEach(function(item){
+      var clean = String(item || '').replace(/\\s+/g, ' ').trim();
+      if(!clean) return;
+      var key = clean.toLowerCase();
+      if(out.some(function(existing){ return existing.toLowerCase() === key; })) return;
+      out.push(clean);
+    });
+    return out.slice(0, 4);
+  }
+  function visualTypeForIllustration(selectedText, clipText){
+    var selected = String(selectedText || '').toLowerCase();
+    var hasGraphSignal = function(text){
+      return /\\b(grow|growth|growing|increase|increased|increasing|rise|rising|up|usage|metric|metrics|speed|fast|faster|progress|trend|rate|revenue|conversion|conversions|traffic|adoption|number|numbers|percent|percentage|x|times|daily|weekly|monthly)\\b/.test(text) || /\\b\\d+(?:[.,]\\d+)?\\s*(?:%|percent|x|k|m|b|ms|s|sec|seconds|tasks|users|messages|requests)?\\b/i.test(text);
+    };
+    if(hasGraphSignal(selected)){
+      return 'graph';
+    }
+    return 'list';
+  }
+  function numberItemsFromText(text){
+    var matches = String(text || '').match(/\\b\\d+(?:[.,]\\d+)?\\s*(?:%|percent|x|k|m|b|ms|s|sec|seconds|tasks|users|messages|requests|days|weeks|months)?\\b/gi) || [];
+    return uniquePromptItems(matches).slice(0, 3);
+  }
+  function visualItemsForIllustration(visualType, selectedText, clipText){
+    var allText = (selectedText + ' ' + clipText).replace(/\\s+/g, ' ').trim();
+    if(visualType === 'graph'){
+      var numbers = numberItemsFromText(allText);
+      if(numbers.length) return uniquePromptItems(numbers.concat(['Metric trend', 'Going up']));
+      if(/\\b(speed|fast|faster)\\b/i.test(allText)) return ['Speed increases', 'Faster usage', 'Trend up'];
+      if(/\\b(task|tasks|message|messages|daily)\\b/i.test(allText)) return ['Daily volume', 'Tasks', 'Messages'];
+      return ['Metric signal', 'Trend up', 'Progress'];
+    }
+    if(hasExplicitVibeCodingOrder(allText)){
+      return ['Vibe first', 'Coding second'];
+    }
+    if(/\\bvibe\\s+coding\\b/i.test(allText)){
+      return ['Vibe', 'Coding'];
+    }
+    if(/\\bwork\\s+on\\s+(?:our\\s+)?projects\\b/i.test(allText) && /\\bAI\\b/i.test(allText)){
+      var workshopItems = ['Work on projects', 'Use AI together'];
+      if(/\\bmeet\\s+new\\s+people\\b/i.test(allText)) workshopItems.push('Meet new people');
+      if(/\\bget\\s+some\\s+work\\s+done\\b/i.test(allText)) workshopItems.push('Get work done');
+      return uniquePromptItems(workshopItems);
+    }
+    if(/\\bmeet\\s+new\\s+people\\b/i.test(allText) && /\\bsocial/i.test(allText)){
+      return uniquePromptItems(['Meet new people', 'Socialize', 'Build something']);
+    }
+    var ordered = [];
+    var first = allText.match(/\\b([A-Za-z][A-Za-z\\s-]{2,32}?)\\s+(?:in\\s+the\\s+)?first\\b/i);
+    var second = allText.match(/\\b([A-Za-z][A-Za-z\\s-]{2,32}?)\\s+(?:in\\s+the\\s+)?second\\b/i);
+    if(first) ordered.push(first[1].trim() + ' first');
+    if(second) ordered.push(second[1].trim() + ' second');
+    if(ordered.length >= 2) return uniquePromptItems(ordered);
+    if(/\\b(key|priority|priorities|important|feature|features|reason|reasons|step|steps)\\b/i.test(allText)) return ['Key idea', 'Why it matters', 'Next point'];
+    return ['Main idea', 'Supporting point'];
+  }
+  function hasExplicitVibeCodingOrder(text){
+    text = String(text || '');
+    var vibeFirst = /\\bvibe\\b[^.!?]{0,140}\\bfirst\\b/i.test(text) || /\\bfirst\\b[^.!?]{0,140}\\bvibe\\b/i.test(text) || /\\bvibe\\b[^.!?]{0,140}\\bfirst\\s+place\\b/i.test(text);
+    var codingSecond = /\\bcoding\\b[^.!?]{0,140}\\bsecond\\b/i.test(text) || /\\bsecond\\b[^.!?]{0,140}\\bcoding\\b/i.test(text);
+    return vibeFirst && codingSecond;
+  }
+  function visualBriefForIllustration(visualType, visualItems, selectedText, clipText){
+    if(visualType === 'graph'){
+      return 'Build one clean metric graphic: a rising line or bar chart with a small dashboard card. Use these readable labels when they are relevant: ' + visualItems.join(', ') + '. The visual should explain the trend without repeating the caption.';
+    }
+    if(visualItems.join(' ').toLowerCase().indexOf('vibe first') !== -1){
+      return 'Build two large ordered cards: "Vibe first" appears first as the main priority, then "Coding second" appears as the supporting action. Keep it conceptual, not a transcript card.';
+    }
+    return 'Build a concise list graphic with 2-4 cards appearing one by one. Use these labels as the card text: ' + visualItems.join(', ') + '. The cards should summarize the idea from the full clip context, not quote the selected caption.';
+  }
+  function visualPlanForIllustration(selectedMoments, clipMoments){
+    var selectedText = promptTextFromMoments(selectedMoments);
+    var clipText = promptTextFromMoments(clipMoments);
+    var visualType = visualTypeForIllustration(selectedText, clipText);
+    var visualItems = visualItemsForIllustration(visualType, selectedText, clipText);
+    return {
+      visualType: visualType,
+      visualItems: visualItems,
+      visualItemsText: visualItems.map(function(item){ return '- ' + item; }).join('\\n'),
+      visualBrief: visualBriefForIllustration(visualType, visualItems, selectedText, clipText)
+    };
+  }
+  function illustrationPromptMomentsForPoint(card, point){
+    var clipEnd = parseInt(card.dataset.end, 10) || STATE.sourceDurationMs || point.ts_ms + ILLUSTRATION_MIN_MS;
+    var durationMs = illustrationDurationForPoint(card, point);
+    var endMs = Math.min(clipEnd, point.ts_ms + durationMs);
+    var pts = pointsForClip(card).filter(function(p){
+      return p.ts_ms >= point.ts_ms && p.ts_ms < endMs;
+    });
+    if(!pts.some(function(p){ return p.index === point.index; })) pts.unshift(point);
+    return pts.map(function(p){
+      return {
+        index: p.index,
+        ts_ms: p.ts_ms,
+        text: String(p.caption || p.original_text || '').replace(/\\s+/g, ' ').trim()
+      };
+    }).filter(function(m){ return m.text; });
+  }
+  function illustrationPromptPartsForPoint(card, point){
+    var titleInput = card && card.querySelector('.title-input');
+    var title = titleInput ? titleInput.value.trim() : '';
+    var durationMs = illustrationDurationForPoint(card, point);
+    var moments = illustrationPromptMomentsForPoint(card, point);
+    var clipMoments = sourceScriptMoments();
+    var visualPlan = visualPlanForIllustration(moments, clipMoments);
+    var subject = moments.map(function(m){ return m.text; }).join(' ');
+    if(!subject) subject = (title || 'this video moment');
+    if(subject.length > 520) subject = subject.slice(0, 520).replace(/\\s+\\S*$/, '') + '...';
+    var guidance = [
+      'Use the full clip captions to understand the idea, then illustrate only the selected span.',
+      'Use a ' + visualPlan.visualType + ' visual with these items: ' + visualPlan.visualItems.join(', ') + '.',
+      'Keep it as one continuous visual idea, not a literal transcript card.'
+    ].join(' ');
+    var durationSeconds = Math.max(1, durationMs / 1000).toFixed(1).replace(/\\.0$/, '');
+    var prompt = fillIllustrationPromptTemplate(illustrationPromptTemplate(), {
+      clipTitle: title || STATE.clipTitlePrefix || '',
+      durationSeconds: durationSeconds,
+      moments: moments,
+      clipMoments: clipMoments,
+      subject: subject,
+      guidance: guidance,
+      visualType: visualPlan.visualType,
+      visualItemsText: visualPlan.visualItemsText,
+      visualBrief: visualPlan.visualBrief
+    });
+    return { prompt: prompt, moments: moments, clipMoments: clipMoments, guidance: guidance, durationMs: durationMs, durationSeconds: durationSeconds, clipTitle: title || STATE.clipTitlePrefix || '', visualType: visualPlan.visualType, visualItems: visualPlan.visualItems, visualBrief: visualPlan.visualBrief };
+  }
+  function defaultIllustrationPromptForPoint(card, point){
+    return illustrationPromptPartsForPoint(card, point).prompt;
+  }
+  function isModernIllustrationPrompt(prompt){
+    var text = cleanMultilinePrompt(prompt);
+    return /moments?\s+to\s+cover\s*:/i.test(text) && /(visual\s+plan|visual\s+direction|style)\s*:/i.test(text);
+  }
+  function isCurrentIllustrationPrompt(prompt){
+    var text = cleanMultilinePrompt(prompt);
+    return /full\s+(?:clip|source)\s+captions(?:\s+for\s+context)?\s*:/i.test(text) && /selected\s+span\s+to\s+illustrate\s*:/i.test(text) && /visual\s+type\s*:/i.test(text) && /visual\s+items\s*:/i.test(text);
+  }
+  function isLegacyIllustrationPrompt(prompt){
+    var text = cleanMultilinePrompt(prompt);
+    return /^Create a clean animated explainer illustration for this video moment:/i.test(text) || /Spoken context:/i.test(text);
+  }
+  function promptForIllustrationDialog(card, point, ill, parts){
+    var stored = cleanMultilinePrompt(ill && ill.prompt || '');
+    if(ill && ill.video_path) return parts.prompt;
+    if(stored && isCurrentIllustrationPrompt(stored)) return stored;
+    if(stored && !isLegacyIllustrationPrompt(stored) && !isModernIllustrationPrompt(stored)) return stored;
+    return parts.prompt;
+  }
+  function previousGeneratedIllustrationPrompt(ill){
+    var stored = cleanMultilinePrompt(ill && ill.prompt || '');
+    return stored && ill && ill.video_path ? stored : '';
+  }
+  function illustrationClipRemainingMs(card, point){
+    var clipEnd = parseInt(card.dataset.end, 10) || STATE.sourceDurationMs || point.ts_ms + 3000;
+    return Math.max(1000, clipEnd - point.ts_ms);
+  }
+  function desiredIllustrationDurationMs(card, point, rawDurationMs){
+    var remaining = illustrationClipRemainingMs(card, point);
+    var floor = Math.min(ILLUSTRATION_MIN_MS, remaining);
+    if(Number.isFinite(Number(rawDurationMs)) && Number(rawDurationMs) > 0){
+      return Math.max(1000, Math.min(remaining, Math.max(Math.round(Number(rawDurationMs)), floor)));
+    }
+    var clipEnd = point.ts_ms + remaining;
+    var natural = Math.max(1000, Math.min(clipEnd, nextPointTs(point, clipEnd)) - point.ts_ms);
+    return Math.max(1000, Math.min(remaining, Math.max(floor, natural)));
+  }
+  function illustrationDurationForPoint(card, point){
+    var ill = readPointIllustration(point);
+    return desiredIllustrationDurationMs(card, point, ill && ill.duration_ms);
+  }
+  function openIllustrationPromptDialog(initialPrompt, parts, previousPrompt){
+    return new Promise(function(resolve){
+      parts = parts || { moments: [], guidance: '', durationMs: 0 };
+      previousPrompt = cleanMultilinePrompt(previousPrompt || '');
+      var m = document.createElement('div');
+      m.className = 'ill-modal';
+      var momentHtml = (parts.moments && parts.moments.length ? parts.moments : []).map(function(moment){
+        return '<div class="ill-moment"><span class="ill-moment-num">#' + escHtml(moment.index) + '</span><span>' + escHtml(moment.text || '') + '</span></div>';
+      }).join('') || '<div class="ill-moment"><span class="ill-moment-num">-</span><span>No moment text available</span></div>';
+      var metaText = 'Covers about ' + escHtml(parts.durationSeconds || Math.max(1, Number(parts.durationMs || 0) / 1000).toFixed(1).replace(/\\.0$/, '')) + 's' + (parts.clipTitle ? ' · ' + escHtml(parts.clipTitle) : '');
+      m.innerHTML =
+        '<div class="ill-overlay"></div>' +
+        '<div class="ill-pane" role="dialog" aria-modal="true" aria-labelledby="ill-title">' +
+          '<header class="ill-head">' +
+            '<h3 id="ill-title">Illustration prompt</h3>' +
+            '<button class="iconbtn ill-close" type="button" aria-label="Close">&times;</button>' +
+          '</header>' +
+          '<p class="ill-sub">Confirm or edit the prompt sent to Hyperframes. The context below reflects the moments this animation should cover.</p>' +
+          '<div class="ill-grid">' +
+            '<aside class="ill-panel">' +
+              '<h4>Moment context</h4>' +
+              '<p class="ill-meta-line">' + metaText + '</p>' +
+              '<div class="ill-moments">' + momentHtml + '</div>' +
+              '<h4>Renderer guidance</h4>' +
+              '<p class="ill-guidance">' + escHtml(parts.guidance || '') + '</p>' +
+            '</aside>' +
+            '<div class="ill-edit-panel">' +
+              '<label for="ill-text">Editable prompt</label>' +
+              '<textarea id="ill-text" class="ill-text" spellcheck="true"></textarea>' +
+            '</div>' +
+          '</div>' +
+          '<footer class="ill-foot">' +
+            (previousPrompt ? '<button class="ill-use-previous" type="button">Use previous</button>' : '') +
+            '<button class="ill-cancel" type="button">Cancel</button>' +
+            '<button class="ill-ok" type="button">Generate</button>' +
+          '</footer>' +
+        '</div>';
+      document.body.appendChild(m);
+      var textarea = m.querySelector('.ill-text');
+      var ok = m.querySelector('.ill-ok');
+      var cancel = m.querySelector('.ill-cancel');
+      var usePrevious = m.querySelector('.ill-use-previous');
+      var close = m.querySelector('.ill-close');
+      var overlay = m.querySelector('.ill-overlay');
+      var settled = false;
+      function done(value){
+        if(settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKey);
+        try { m.remove(); } catch(_){}
+        resolve(value);
+      }
+      function onKey(ev){
+        if(ev.key === 'Escape'){
+          ev.preventDefault();
+          done(null);
+        }
+        if((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter'){
+          ev.preventDefault();
+          done(cleanMultilinePrompt(textarea.value || ''));
+        }
+      }
+      textarea.value = initialPrompt || '';
+      if(usePrevious) usePrevious.addEventListener('click', function(){
+        textarea.value = previousPrompt;
+        textarea.focus();
+        textarea.setSelectionRange(0, textarea.value.length);
+      });
+      ok.addEventListener('click', function(){
+        done(cleanMultilinePrompt(textarea.value || ''));
+      });
+      cancel.addEventListener('click', function(){ done(null); });
+      close.addEventListener('click', function(){ done(null); });
+      overlay.addEventListener('click', function(){ done(null); });
+      document.addEventListener('keydown', onKey);
+      setTimeout(function(){
+        textarea.focus();
+        textarea.setSelectionRange(0, textarea.value.length);
+      }, 0);
+    });
+  }
+  async function generateIllustrationForPoint(card, point, promptText, status, button, force){
+    var ill = ensurePointIllustration(point);
+    var edited = cleanMultilinePrompt(promptText || '');
+    if(!edited) return false;
+    var durationMs = illustrationDurationForPoint(card, point);
+    if(button) button.disabled = true;
+    if(status){ status.textContent = 'generating...'; status.title = ''; }
+    try {
+      var resp = await fetch('api/illustration-generate', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          point_index: point.index,
+          prompt: edited,
+          duration_ms: durationMs,
+          force: force === true
+        })
+      });
+      var data = await resp.json().catch(function(){ return {}; });
+      if(!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+      ill.prompt = data.prompt || edited;
+      ill.video_path = data.video_path || '';
+      ill.cache_key = data.cache_key || '';
+      ill.duration_ms = data.duration_ms || durationMs;
+      ill.generated_at = data.generated_at || '';
+      ill.source_point_index = point.index;
+      ill.source_ts_ms = point.ts_ms;
+      ill.asset_label = nextIllustrationAssetLabel(card, point, ill.duration_ms);
+      ill.explicit = true;
+      if(ill.mode === 'none'){
+        ill.mode = defaultIllustrationModeForNewSelection(card);
+      }
+      if(status){ status.textContent = data.cache === 'hit' ? 'cached' : 'generated'; status.title = ''; }
+      if(card && card._captionTick) card._captionTick();
+      return true;
+    } catch(e) {
+      var message = String(e && e.message ? e.message : e);
+      if(status){ status.textContent = 'failed: ' + message; status.title = message; }
+      return false;
+    } finally {
+      if(button) button.disabled = false;
+    }
+  }
+  function selectedIllustrationPoints(card){
+    var rows = Array.prototype.slice.call(card.querySelectorAll('.point-illustration'));
+    return rows.map(function(row){
+      var cb = row.querySelector('.pt-illustration-pick input');
+      if(!cb || !cb.checked) return null;
+      var ptIdx = parseInt(row.dataset.pt, 10);
+      var point = pointById[ptIdx];
+      return point ? { row: row, point: point } : null;
+    }).filter(Boolean);
+  }
+  function targetIllustrationSuggestionCount(momentCount){
+    var count = Math.max(0, Math.round(Number(momentCount || 0)));
+    if(count <= 0) return 0;
+    if(count <= 3) return 1;
+    if(count <= 8) return 2;
+    return Math.min(4, Math.ceil(count / 5));
+  }
+  function suggestionPoint(suggestion){
+    return suggestion ? pointById[parseInt(suggestion.index, 10)] : null;
+  }
+  function spacedIllustrationSuggestions(card, suggestions, limit){
+    var max = Math.max(0, Math.round(Number(limit || 0)));
+    var minGap = Math.max(3000, ILLUSTRATION_MIN_MS - 500);
+    var out = [];
+    var seen = new Set();
+    (suggestions || []).forEach(function(suggestion){
+      if(max > 0 && out.length >= max) return;
+      var point = suggestionPoint(suggestion);
+      if(!point || seen.has(point.index)) return;
+      var tooClose = out.some(function(existing){
+        var existingPoint = suggestionPoint(existing);
+        return existingPoint && Math.abs(existingPoint.ts_ms - point.ts_ms) < minGap;
+      });
+      if(tooClose) return;
+      seen.add(point.index);
+      out.push(suggestion);
+    });
+    return out;
+  }
+  function heuristicIllustrationSuggestions(card, limit){
+    var rows = Array.prototype.slice.call(card.querySelectorAll('.point-illustration'));
+    var clipText = promptTextFromMoments(clipScriptMomentsForCard(card));
+    var candidates = rows.map(function(row){
+      var ptIdx = parseInt(row.dataset.pt, 10);
+      var point = pointById[ptIdx];
+      var text = point ? String(point.caption || point.original_text || '') : '';
+      var combined = text + ' ' + clipText;
+      var graphScore = /\\b(grow|growth|increase|rising|up|usage|metric|metrics|speed|fast|progress|daily|number|numbers)\\b/i.test(combined) || /\\b\\d+(?:[.,]\\d+)?/.test(combined) ? 8 : 0;
+      var listScore = /\\b(vibe coding|priority|priorities|key|feature|reason|step|first|second|things?)\\b/i.test(combined) ? 6 : 0;
+      return { row: row, point: point, score: text.trim().split(/\\s+/).filter(Boolean).length + graphScore + listScore + (point && point.illustration && point.illustration.video_path ? -100 : 0) };
+    }).filter(function(x){ return x.point && x.score > 0; });
+    candidates.sort(function(a, b){ return b.score - a.score; });
+    var max = Math.max(1, Math.min(4, Math.round(Number(limit || targetIllustrationSuggestionCount(candidates.length) || 1))));
+    return spacedIllustrationSuggestions(card, candidates.map(function(x){
+      return {
+        index: x.point.index,
+        mode: 'side_by_side',
+        duration_ms: illustrationDurationForPoint(card, x.point),
+        prompt: readPointIllustration(x.point).prompt || defaultIllustrationPromptForPoint(card, x.point)
+      };
+    }), max);
+  }
+  function fillMissingIllustrationSuggestions(card, suggestions, target){
+    var max = Math.max(1, Math.round(Number(target || 1)));
+    var out = spacedIllustrationSuggestions(card, suggestions || [], max);
+    if(out.length >= max) return out;
+    var seen = new Set(out.map(function(s){ return parseInt(s.index, 10); }));
+    heuristicIllustrationSuggestions(card, max).forEach(function(suggestion){
+      if(out.length >= max) return;
+      var point = suggestionPoint(suggestion);
+      if(!point || seen.has(point.index)) return;
+      var candidate = spacedIllustrationSuggestions(card, out.concat([suggestion]), max);
+      if(candidate.length > out.length){
+        seen.add(point.index);
+        out = candidate;
+      }
+    });
+    return out;
+  }
+  function applyIllustrationSuggestions(card, suggestions){
+    var picked = new Map((suggestions || []).map(function(s){ return [parseInt(s.index, 10), s]; }));
+    var rows = Array.prototype.slice.call(card.querySelectorAll('.point-illustration'));
+    rows.forEach(function(row){
+      var cb = row.querySelector('.pt-illustration-pick input');
+      var ptIdx = parseInt(row.dataset.pt, 10);
+      var suggestion = picked.get(ptIdx);
+      if(cb) cb.checked = !!suggestion;
+      var point = pointById[ptIdx];
+      if(!point) return;
+      if(!suggestion){
+        var existing = readPointIllustration(point);
+        if(existing.explicit === true && !illustrationAssetKeyFrom(existing) && normalizeIllustrationModeClient(existing.mode) !== 'none'){
+          var stale = ensurePointIllustration(point);
+          stale.mode = 'none';
+          stale.explicit = false;
+          delete stale.duration_ms;
+          delete stale.prompt;
+          delete stale.visual_type;
+          var staleSelect = row.querySelector('.pt-illustration-mode');
+          var staleStatus = row.querySelector('.pt-illustration-status');
+          if(staleSelect) staleSelect.value = 'none';
+          if(staleStatus) staleStatus.textContent = '';
+        }
+        return;
+      }
+      var ill = ensurePointIllustration(point);
+      var suggestedMode = normalizeIllustrationModeClient(suggestion.mode || 'side_by_side');
+      ill.mode = suggestedMode === 'none' ? 'side_by_side' : suggestedMode;
+      ill.explicit = true;
+      if(suggestion.prompt) ill.prompt = cleanMultilinePrompt(suggestion.prompt);
+      if(suggestion.visual_type === 'graph' || suggestion.visual_type === 'list') ill.visual_type = suggestion.visual_type;
+      if(Number.isFinite(Number(suggestion.duration_ms)) && Number(suggestion.duration_ms) >= 1000){
+        ill.duration_ms = desiredIllustrationDurationMs(card, point, suggestion.duration_ms);
+      } else {
+        ill.duration_ms = illustrationDurationForPoint(card, point);
+      }
+      var select = row.querySelector('.pt-illustration-mode');
+      var status = row.querySelector('.pt-illustration-status');
+      if(select) select.value = ill.mode;
+      if(status) status.textContent = ill.video_path ? 'cached' : 'selected';
+    });
+    syncIllustrationBadges(card);
+    scheduleSave();
+  }
+  async function selectSuggestedIllustrationPoints(card){
+    var rows = Array.prototype.slice.call(card.querySelectorAll('.point-illustration'));
+    var suggestions = [];
+    var targetCount = targetIllustrationSuggestionCount(rows.length) || 1;
+    try {
+      var titleInput = card && card.querySelector('.title-input');
+      var moments = rows.map(function(row){
+        var ptIdx = parseInt(row.dataset.pt, 10);
+        var point = pointById[ptIdx];
+        if(!point) return null;
+        var ill = point.illustration || {};
+        return {
+          index: point.index,
+          ts_ms: point.ts_ms,
+          caption: point.caption || '',
+          original_text: point.original_text || '',
+          has_video: !!ill.video_path
+        };
+      }).filter(Boolean);
+      var resp = await fetch('api/illustration-suggest', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          clip_title: titleInput ? titleInput.value.trim() : '',
+          max: targetCount,
+          moments: moments
+        })
+      });
+      if(resp.ok){
+        var data = await resp.json().catch(function(){ return {}; });
+        if(Array.isArray(data.selected)) suggestions = data.selected;
+      }
+    } catch(_){}
+    suggestions = fillMissingIllustrationSuggestions(card, suggestions, targetCount);
+    applyIllustrationSuggestions(card, suggestions);
+    return suggestions.length;
+  }
+  function syncIllustrationBadges(card){
+    var root = card || document;
+    root.querySelectorAll('.point-caption').forEach(function(row){
+      var point = pointById[parseInt(row.dataset.pt, 10)];
+      var badge = row.querySelector('.pt-illustration-badge');
+      if(!point || !badge) return;
+      var st = illustrationStatusForPoint(point, row.closest('.clip-card'));
+      badge.className = 'pt-illustration-badge' + (st.className ? ' ' + st.className : '');
+      badge.textContent = st.text;
+      badge.title = st.title;
+    });
+    root.querySelectorAll('.point-illustration').forEach(function(row){
+      var point = pointById[parseInt(row.dataset.pt, 10)];
+      if(!point) return;
+      var ill = readPointIllustration(point);
+      var select = row.querySelector('.pt-illustration-mode');
+      if(select) select.value = ill.mode;
+      var status = row.querySelector('.pt-illustration-status');
+      if(status) status.textContent = illustrationStatusForPoint(point, row.closest('.clip-card')).text.replace(/^Animation off$/, '');
+      var badge = row.querySelector('.ill-badge');
+      if(badge){
+        var st = illustrationStatusForPoint(point, row.closest('.clip-card'));
+        badge.className = 'ill-badge' + (st.className ? ' ' + st.className : '');
+        badge.textContent = st.text;
+        badge.title = st.title;
+      }
+    });
+  }
 
   function renderPointCaptions(card){
     var host = card.querySelector('.point-captions');
@@ -2712,6 +3691,7 @@ const JS = `
           '</div>' +
           '<div class="pt-edit">' +
             '<textarea rows="2" placeholder="caption for this moment">' + escHtml(p.caption || '') + '</textarea>' +
+            '<div class="pt-meta-row">' + illustrationBadgeHtml(p, 'pt-illustration-badge', card) + '</div>' +
             '<div class="pt-crop-panel" hidden>' +
               '<div class="pt-crop-stage">' +
                 cropImg +
@@ -2866,8 +3846,279 @@ const JS = `
     if(card.classList.contains('collapsed')) refreshClipSummary(card);
   }
 
+  function renderPointIllustrations(card){
+    var host = card.querySelector('.point-illustrations');
+    if(!host) return;
+    var pts = pointsForClip(card);
+    if(pts.length === 0){
+      host.innerHTML = '<div class="point-captions-empty">No analysis points in range. Adjust the range above to include points.</div>';
+      return;
+    }
+    var assets = illustrationAssetsForCard(card);
+    host.innerHTML = pts.map(function(p){
+      var effective = effectiveIllustrationForPoint(card, p);
+      var ill = effective.ill;
+      var illMode = normalizeIllustrationModeClient(effective.mode);
+      var hasIllVideo = !!(effective.asset && effective.asset.video_path);
+      var illUrl = illustrationUrlForAsset(effective.asset);
+      var selectedAssetKey = effective.assetKey;
+      var illVideo = hasIllVideo && illUrl
+        ? '<video class="ill-thumb-video" muted playsinline preload="metadata" src="' + illUrl + '"></video>'
+        : '';
+      var thumb = hasIllVideo
+        ? illVideo
+        : '<button class="ill-empty-thumb" type="button" data-ts="' + p.ts_ms + '">Generate animation</button>';
+      var modeOption = function(value, label){
+        return '<option value="' + value + '"' + (illMode === value ? ' selected' : '') + '>' + label + '</option>';
+      };
+      var assetOption = function(asset){
+        var label = illustrationAssetLabel(asset);
+        var continuation = Number.isFinite(asset.source_ts_ms) && p.ts_ms > asset.source_ts_ms && p.ts_ms < asset.source_ts_ms + asset.duration_ms;
+        if(continuation) label += ' (continue)';
+        return '<option value="' + escHtml(asset.key) + '"' + (selectedAssetKey === asset.key ? ' selected' : '') + '>' + escHtml(label) + '</option>';
+      };
+      var coverSec = Math.max(1, illustrationDurationForPoint(card, p) / 1000);
+      var status = illustrationStatusForPoint(p, card);
+      var statusText = status.text === 'Animation off' ? '' : status.text;
+      var fullText = (p.caption || p.original_text || '').replace(/\\s+/g, ' ').trim();
+      var text = shortMomentLabel(fullText, 6);
+      var rowClass = 'point-illustration' + (effective.inherited ? ' is-inherited' : '');
+      var statusClass = 'ill-row-status' + (status.className ? ' ' + status.className : '');
+      var previewButton = hasIllVideo ? '<button class="ill-preview-btn" type="button">Preview</button>' : '';
+      var explicitIll = readPointIllustration(p);
+      var pickChecked = !effective.inherited && normalizeIllustrationModeClient(explicitIll.mode) !== 'none' && explicitIll.explicit === true && !illustrationAssetKeyFrom(explicitIll);
+      return '<div class="' + rowClass + '" data-pt="' + p.index + '">' +
+        '<div class="ill-body">' +
+          '<div class="ill-media">' +
+            '<div class="ill-head">' +
+              '<span class="ill-num">#' + p.index + '</span>' +
+              '<span class="ill-time">' + fmtSecs(p.ts_ms / 1000) + '</span>' +
+              '<span class="ill-span">/ covers up to ' + coverSec.toFixed(1) + 's</span>' +
+            '</div>' +
+            '<div class="ill-thumb-wrap">' +
+              thumb +
+              '<label class="pt-illustration-pick" title="Select for illustration generation"><input type="checkbox"' + (pickChecked ? ' checked' : '') + '><span></span></label>' +
+            '</div>' +
+          '</div>' +
+          '<div class="ill-edit">' +
+            '<div class="ill-title-row">' +
+              '<p class="ill-text" title="' + escHtml(fullText || 'No caption text') + '">' + escHtml(text || 'No caption text') + '</p>' +
+              '<span class="' + statusClass + '" title="' + escHtml(status.title) + '">' + escHtml(statusText || 'Off') + '</span>' +
+            '</div>' +
+            '<div class="ill-controls">' +
+              '<label><span>Mode</span><select class="pt-illustration-mode">' +
+                modeOption('none', 'Original only') +
+                modeOption('side_by_side', 'Side by side') +
+                modeOption('animation_only', 'Animation only') +
+              '</select></label>' +
+              '<label><span>Asset</span><select class="pt-illustration-asset">' +
+                '<option value="">No animation selected</option>' +
+                assets.map(assetOption).join('') +
+              '</select></label>' +
+              '<span class="ill-row-actions">' +
+                previewButton +
+                '<button class="pt-illustration-generate" type="button">' + (hasIllVideo ? 'Regenerate' : 'Generate') + '</button>' +
+              '</span>' +
+              '<span class="pt-illustration-status hint-small">' + escHtml(statusText) + '</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+    host.querySelectorAll('.pt-illustration-mode').forEach(function(sel){
+      var row = sel.closest('.point-illustration');
+      var ptIdx = row ? parseInt(row.dataset.pt, 10) : NaN;
+      sel.addEventListener('change', function(){
+        var point = pointById[ptIdx];
+        if(!point) return;
+        var effective = effectiveIllustrationForPoint(card, point);
+        var nextMode = normalizeIllustrationModeClient(sel.value);
+        var ill = ensurePointIllustration(point);
+        if(nextMode !== 'none' && effective.asset && !illustrationAssetKeyFrom(ill)) applyIllustrationAssetToPoint(point, effective.asset);
+        if(nextMode === 'none'){
+          delete ill.video_path;
+          delete ill.cache_key;
+          delete ill.source_point_index;
+          delete ill.source_ts_ms;
+          delete ill.asset_label;
+        }
+        ill.mode = nextMode;
+        ill.explicit = true;
+        renderPointIllustrations(card);
+        renderPointCaptions(card);
+        if(card && card._captionTick) card._captionTick();
+        scheduleSave();
+      });
+    });
+    host.querySelectorAll('.pt-illustration-asset').forEach(function(sel){
+      var row = sel.closest('.point-illustration');
+      var ptIdx = row ? parseInt(row.dataset.pt, 10) : NaN;
+      sel.addEventListener('change', function(){
+        var point = pointById[ptIdx];
+        if(!point) return;
+        var ill = ensurePointIllustration(point);
+        var key = sel.value || '';
+        if(!key){
+          delete ill.video_path;
+          delete ill.cache_key;
+          delete ill.source_point_index;
+          delete ill.source_ts_ms;
+          delete ill.asset_label;
+          ill.explicit = true;
+        } else {
+          var asset = findIllustrationAssetByKey(card, key);
+          if(asset) applyIllustrationAssetToPoint(point, asset);
+          if(ill.mode === 'none'){
+            ill.mode = defaultIllustrationModeForNewSelection(card);
+            var modeSelect = row.querySelector('.pt-illustration-mode');
+            if(modeSelect) modeSelect.value = ill.mode;
+          }
+        }
+        renderPointIllustrations(card);
+        renderPointCaptions(card);
+        if(card._captionTick) card._captionTick();
+        scheduleSave();
+      });
+    });
+    host.querySelectorAll('.pt-illustration-pick input').forEach(function(cb){
+      cb.addEventListener('change', function(ev){
+        ev.stopPropagation();
+        var row = cb.closest('.point-illustration');
+        var point = row && pointById[parseInt(row.dataset.pt, 10)];
+        if(cb.checked && point){
+          var effective = effectiveIllustrationForPoint(card, point);
+          var ill = ensurePointIllustration(point);
+          var selectedMode = defaultIllustrationModeForNewSelection(card);
+          if(effective.asset && !illustrationAssetKeyFrom(ill)) applyIllustrationAssetToPoint(point, effective.asset);
+          ill.mode = selectedMode;
+          ill.explicit = true;
+          var select = row.querySelector('.pt-illustration-mode');
+          if(select) select.value = selectedMode;
+          renderPointIllustrations(card);
+          renderPointCaptions(card);
+          if(card._captionTick) card._captionTick();
+          scheduleSave();
+        } else if(point) {
+          var current = ensurePointIllustration(point);
+          if(!illustrationAssetKeyFrom(current)){
+            current.mode = 'none';
+            current.explicit = false;
+            delete current.duration_ms;
+            delete current.prompt;
+            delete current.visual_type;
+            renderPointIllustrations(card);
+            renderPointCaptions(card);
+            if(card._captionTick) card._captionTick();
+            scheduleSave();
+          }
+        }
+      });
+    });
+    host.querySelectorAll('.pt-illustration-generate').forEach(function(btn){
+      var row = btn.closest('.point-illustration');
+      var ptIdx = row ? parseInt(row.dataset.pt, 10) : NaN;
+      btn.addEventListener('click', async function(){
+        var point = pointById[ptIdx];
+        if(!card || !point) return;
+        var ill = ensurePointIllustration(point);
+        var promptParts = illustrationPromptPartsForPoint(card, point);
+        var existingPrompt = promptForIllustrationDialog(card, point, ill, promptParts);
+        var edited = await openIllustrationPromptDialog(existingPrompt, promptParts, previousGeneratedIllustrationPrompt(ill));
+        if(edited == null) return;
+        edited = cleanMultilinePrompt(edited);
+        if(!edited) return;
+        var status = row && row.querySelector('.pt-illustration-status');
+        var ok = await generateIllustrationForPoint(card, point, edited, status, btn, !!ill.video_path);
+        if(ok){
+          btn.textContent = 'Regenerate';
+          renderPointIllustrations(card);
+          renderPointCaptions(card);
+          scheduleSave();
+        }
+      });
+    });
+    host.querySelectorAll('.ill-empty-thumb').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var row = btn.closest('.point-illustration');
+        var gen = row && row.querySelector('.pt-illustration-generate');
+        if(gen) gen.click();
+      });
+    });
+    host.querySelectorAll('.ill-preview-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var row = btn.closest('.point-illustration');
+        var ptIdx = row ? parseInt(row.dataset.pt, 10) : NaN;
+        var point = pointById[ptIdx];
+        if(!point) return;
+        previewIllustrationAsset(card, point);
+      });
+    });
+    host.querySelectorAll('.ill-thumb,.ill-thumb-video').forEach(function(el){
+      el.addEventListener('click', function(){
+        var v = card ? card.querySelector('.clip-player') : null;
+        var row = el.closest('.point-illustration');
+        var point = row && pointById[parseInt(row.dataset.pt, 10)];
+        if(v && point){
+          if(!v.getAttribute('src')){ v.setAttribute('src','source.mp4'); v.load(); }
+          var go = function(){ try { v.currentTime = point.ts_ms/1000; v.play(); } catch(_){} };
+          if(v.readyState >= 1) go();
+          else v.addEventListener('loadedmetadata', go, {once:true});
+        }
+      });
+    });
+    syncIllustrationBadges(card);
+    if(card.classList.contains('collapsed')) refreshClipSummary(card);
+  }
+
   function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function fmtSecs(s){ var m=Math.floor(s/60), x=(s%60); return m+':'+(x<10?'0':'')+x.toFixed(1); }
+
+  document.addEventListener('click', async function(ev){
+    var selectBtn = ev.target.closest && ev.target.closest('.moments-select-suggested');
+    if(selectBtn){
+      var selectCard = selectBtn.closest('.clip-card');
+      if(!selectCard) return;
+      ev.preventDefault();
+      await selectSuggestedIllustrationPoints(selectCard);
+      return;
+    }
+    var genBtn = ev.target.closest && ev.target.closest('.moments-generate-selected');
+    if(!genBtn) return;
+    var card = genBtn.closest('.clip-card');
+    if(!card) return;
+    ev.preventDefault();
+    var selected = selectedIllustrationPoints(card);
+    if(selected.length === 0){
+      await selectSuggestedIllustrationPoints(card);
+      selected = selectedIllustrationPoints(card);
+    }
+    if(selected.length === 0) return;
+    genBtn.disabled = true;
+    var originalText = genBtn.textContent;
+    var generated = 0;
+    for(var i = 0; i < selected.length; i++){
+      var item = selected[i];
+      var status = item.row.querySelector('.pt-illustration-status');
+      var rowBtn = item.row.querySelector('.pt-illustration-generate');
+      genBtn.textContent = 'Generating ' + (i + 1) + '/' + selected.length;
+      var promptParts = illustrationPromptPartsForPoint(card, item.point);
+      var promptText = promptForIllustrationDialog(card, item.point, readPointIllustration(item.point), promptParts);
+      var ok = await generateIllustrationForPoint(card, item.point, promptText, status, rowBtn, false);
+      if(ok){
+        generated++;
+        var modeSelect = item.row.querySelector('.pt-illustration-mode');
+        if(modeSelect) modeSelect.value = ensurePointIllustration(item.point).mode;
+        if(rowBtn) rowBtn.textContent = 'Regenerate';
+      }
+    }
+    if(generated > 0){
+      renderPointIllustrations(card);
+      renderPointCaptions(card);
+      scheduleSave();
+    }
+    genBtn.textContent = originalText;
+    genBtn.disabled = false;
+  });
 
   // ─── Resizable two-column panes ──────────────────────────────────
   function setupSplitter(container, storageKey, minPct, maxPct){
@@ -3181,6 +4432,7 @@ const JS = `
         }
         render();
         renderPointCaptions(card);
+        renderPointIllustrations(card);
         if(video && video.readyState >= 1){ try { video.currentTime = newMs / 1000; } catch(e){} }
       });
       handle.addEventListener('pointerup', function(e){
@@ -3289,7 +4541,16 @@ const JS = `
         var b = clipBoundsMs();
         var t = video.currentTime * 1000;
         if(t < b[0] || t >= b[1] - 50){ try { video.currentTime = b[0] / 1000; } catch(_){} }
-        try { video.play(); } catch(_){}
+        var p = video.play();
+        if(p && typeof p.catch === 'function') p.catch(function(){});
+        setTimeout(function(){
+          if(card._captionTick) card._captionTick();
+          var demo = card.querySelector('.clip-illustration-player');
+          if(demo && !demo.paused){
+            var p2 = demo.play();
+            if(p2 && typeof p2.catch === 'function') p2.catch(function(){});
+          }
+        }, 60);
       };
       if(video.readyState >= 1) startPlay();
       else video.addEventListener('loadedmetadata', startPlay, {once:true});
@@ -3306,6 +4567,7 @@ const JS = `
 
     render();
     renderPointCaptions(card);
+    renderPointIllustrations(card);
   }
   document.querySelectorAll('.clip-card').forEach(setupRange);
 
@@ -3413,6 +4675,163 @@ const JS = `
       if(tMs >= windows[i].startMs && tMs < windows[i].endMs) return windows[i];
     }
     return null;
+  }
+  function illustrationUrlForPoint(point){
+    var ill = readPointIllustration(point);
+    if(ill.cache_key) return 'illustrations/' + encodeURIComponent(ill.cache_key) + '/video.mp4';
+    var m = String(ill.video_path || '').match(/cache\\/illustrations\\/([a-f0-9]{24})\\/video\\.mp4$/);
+    return m ? 'illustrations/' + encodeURIComponent(m[1]) + '/video.mp4' : '';
+  }
+  function illustrationUrlForAsset(asset){
+    if(!asset) return '';
+    if(asset.cache_key) return 'illustrations/' + encodeURIComponent(asset.cache_key) + '/video.mp4';
+    var m = String(asset.video_path || '').match(/cache\\/illustrations\\/([a-f0-9]{24})\\/video\\.mp4$/);
+    return m ? 'illustrations/' + encodeURIComponent(m[1]) + '/video.mp4' : '';
+  }
+  function activeIllustrationSegmentForCard(card, tMs){
+    var segments = illustrationSegmentsForCardClient(card);
+    for(var sIdx = 0; sIdx < segments.length; sIdx++){
+      var segment = segments[sIdx];
+      if(tMs >= segment.startMs && tMs < segment.endMs) return segment;
+    }
+    return null;
+  }
+  function illustrationSegmentsForCardClient(card){
+    var clipStart = parseInt(card.dataset.start, 10);
+    var clipEnd = parseInt(card.dataset.end, 10);
+    if(!Number.isFinite(clipStart) || !Number.isFinite(clipEnd) || clipEnd <= clipStart) return [];
+    var events = POINTS.filter(function(point){
+      return point && typeof point.ts_ms === 'number' && point.ts_ms < clipEnd && isIllustrationTimelineEventClient(point.illustration);
+    }).sort(function(a, b){ return a.ts_ms - b.ts_ms; });
+    var raw = [];
+    for(var i = 0; i < events.length; i++){
+      var point = events[i];
+      var ill = readPointIllustration(point);
+      var mode = normalizeIllustrationModeClient(ill.mode);
+      if(mode === 'none') continue;
+      var url = illustrationUrlForPoint(point);
+      if(!url) continue;
+      var durationMs = Math.max(1000, Number(ill.duration_ms || ILLUSTRATION_MIN_MS));
+      var nextEventTs = i + 1 < events.length ? events[i + 1].ts_ms : Infinity;
+      var startMs = Math.max(clipStart, point.ts_ms);
+      var endMs = Math.min(clipEnd, point.ts_ms + Math.max(ILLUSTRATION_MIN_MS, durationMs), nextEventTs);
+      if(endMs > startMs) raw.push({ point: point, mode: mode, url: url, assetKey: illustrationAssetKeyFrom(ill), startMs: startMs, endMs: endMs });
+    }
+    if(raw.length <= 1) return raw;
+    var merged = [];
+    raw.forEach(function(segment){
+      var prev = merged[merged.length - 1];
+      if(prev && prev.mode === segment.mode && prev.url === segment.url && Math.abs(prev.endMs - segment.startMs) <= 1){
+        prev.endMs = segment.endMs;
+      } else {
+        merged.push(segment);
+      }
+    });
+    return merged;
+  }
+  function effectiveIllustrationForPoint(card, point){
+    var explicit = readPointIllustration(point);
+    var explicitMode = normalizeIllustrationModeClient(explicit.mode);
+    if(isIllustrationTimelineEventClient(point && point.illustration)){
+      return {
+        inherited: false,
+        sourcePoint: point,
+        mode: explicitMode,
+        ill: explicit,
+        assetKey: illustrationAssetKeyFrom(explicit),
+        asset: illustrationAssetKeyFrom(explicit) ? generatedIllustrationAssetForPoint(point, explicit) : null
+      };
+    }
+    var segments = illustrationSegmentsForCardClient(card);
+    for(var i = 0; i < segments.length; i++){
+      var segment = segments[i];
+      if(point.ts_ms >= segment.startMs && point.ts_ms < segment.endMs){
+        var sourceIll = readPointIllustration(segment.point);
+        return {
+          inherited: true,
+          sourcePoint: segment.point,
+          mode: segment.mode,
+          ill: sourceIll,
+          assetKey: illustrationAssetKeyFrom(sourceIll),
+          asset: generatedIllustrationAssetForPoint(segment.point, sourceIll)
+        };
+      }
+    }
+    return { inherited: false, sourcePoint: point, mode: 'none', ill: explicit, assetKey: '', asset: null };
+  }
+  function syncIllustrationPreview(card, tMs){
+    var wrap = card.querySelector('.clip-video-wrap');
+    var source = card.querySelector('.clip-player');
+    var demo = card.querySelector('.clip-illustration-player');
+    if(!wrap || !source || !demo) return;
+    var segment = activeIllustrationSegmentForCard(card, tMs);
+    if(!segment){
+      wrap.removeAttribute('data-illustration-mode');
+      try { demo.pause(); } catch(_){}
+      return;
+    }
+    wrap.setAttribute('data-illustration-mode', segment.mode);
+    if(demo.getAttribute('src') !== segment.url){
+      try { demo.pause(); } catch(_){}
+      demo.setAttribute('src', segment.url);
+      demo.muted = true;
+      demo.playsInline = true;
+      demo.load();
+    }
+    try { demo.playbackRate = source.playbackRate || 1; } catch(_){}
+    var desired = Math.max(0, (tMs - segment.startMs) / 1000);
+    var dur = Number.isFinite(demo.duration) && demo.duration > 0 ? demo.duration : Math.max(.1, (segment.endMs - segment.startMs) / 1000);
+    if(dur > 0) desired = desired % dur;
+    if(Math.abs((demo.currentTime || 0) - desired) > .12){
+      try { demo.currentTime = desired; } catch(_){}
+    }
+    if(source.paused || source.ended){
+      try { demo.pause(); } catch(_){}
+    } else {
+      var p = demo.play();
+      if(p && typeof p.catch === 'function') p.catch(function(){
+        demo.addEventListener('canplay', function once(){
+          demo.removeEventListener('canplay', once);
+          if(!source.paused && !source.ended){
+            var p2 = demo.play();
+            if(p2 && typeof p2.catch === 'function') p2.catch(function(){});
+          }
+        }, {once:true});
+      });
+    }
+  }
+  function previewIllustrationAsset(card, point){
+    var effective = effectiveIllustrationForPoint(card, point);
+    var url = illustrationUrlForAsset(effective.asset);
+    if(!url) return;
+    var demo = card.querySelector('.clip-illustration-player');
+    var source = card.querySelector('.clip-player');
+    var wasPaused = !source || source.paused;
+    if(source) { try { source.pause(); } catch(_){} }
+    if(!demo) return;
+    demo.muted = true;
+    demo.playsInline = true;
+    if(demo.getAttribute('src') !== url){
+      demo.setAttribute('src', url);
+      demo.load();
+    }
+    var start = function(){
+      try { demo.currentTime = 0; } catch(_){}
+      var p = demo.play();
+      if(p && typeof p.catch === 'function') p.catch(function(){});
+    };
+    if(demo.readyState >= 1) start();
+    else demo.addEventListener('loadedmetadata', start, {once:true});
+    var wrap = card.querySelector('.clip-video-wrap');
+    if(wrap){
+      wrap.setAttribute('data-illustration-mode', effective.mode === 'none' ? 'animation_only' : effective.mode);
+    }
+    setTimeout(function(){
+      if(wasPaused){
+        try { demo.pause(); } catch(_){}
+        if(card._captionTick) card._captionTick();
+      }
+    }, Math.min(3000, Math.max(1200, Number((effective.asset && effective.asset.duration_ms) || 2000))));
   }
   // Per-clip caption settings live on the card's data attributes
   // (set by the ⚙ Settings popover and seeded from config.renderDefaults).
@@ -3691,6 +5110,7 @@ const JS = `
     function tick(){
       var t = (video.currentTime || 0) * 1000;
       var win = activeWindow(captionWindowsForCard(card), t);
+      syncIllustrationPreview(card, t);
       renderOverlay(card, win, t, ov.dataset.style || 'bold-white-bottom');
       var clipStartMs = Number(card.dataset.start || 0);
       var canImitateNow = !video.paused && Math.max(0, t - clipStartMs) >= 120;
@@ -3816,6 +5236,8 @@ const JS = `
       }
       var pc = card.querySelector('.point-captions');
       if(pc){ pc.setAttribute('data-clip', newId); pc.innerHTML = ''; }
+      var pi = card.querySelector('.point-illustrations');
+      if(pi){ pi.setAttribute('data-clip', newId); pi.innerHTML = ''; }
       stack.appendChild(card);
       setupCard(card);
       renumberClipCards();
@@ -3989,6 +5411,18 @@ const JS = `
       t.classList.toggle('active', t === tab);
     });
     if(tab.dataset.clipTab === 'settings') syncSettingsTab(card);
+  });
+
+  // Right-pane tabs inside Edit: Captions ↔ Illustrations.
+  document.addEventListener('click', function(ev){
+    var tab = ev.target.closest && ev.target.closest('.right-pane-tab');
+    if(!tab) return;
+    var pane = tab.closest('.clip-grid-right');
+    if(!pane) return;
+    pane.dataset.rightTab = tab.dataset.rightTab || 'captions';
+    pane.querySelectorAll('.right-pane-tab').forEach(function(t){
+      t.classList.toggle('active', t === tab);
+    });
   });
 
   // ─── Clip card collapse (per clip, persisted in sessionStorage) ──

@@ -58,6 +58,8 @@ export interface AicwVideoConfig {
   renderDefaults: RenderDefaults;
   /** Ordered standalone AI CLI fallback chain. MCP sampling still wins when an AI host is connected. */
   ai_cli_tools: AiCliToolConfig[];
+  /** Markdown prompt template used for generated Hyperframes illustrations. */
+  illustrationPromptTemplatePath: string;
 }
 
 export type PowertoolsConfig = AicwVideoConfig;
@@ -81,7 +83,9 @@ const DEFAULT_CONFIG: AicwVideoConfig = {
     { name: "claude-code", command: "claude", supports_images: true },
     { name: "codex", command: "codex", supports_images: true },
     { name: "ollama", command: "ollama", model: "gemma4", supports_images: false },
+    { name: "ollama", command: "ollama", model: "qwen3.6", supports_images: false },
   ],
+  illustrationPromptTemplatePath: "config/illustration-prompt-template.md",
 };
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
@@ -125,6 +129,11 @@ function normalizeAiCliTools(value: unknown): AiCliToolConfig[] {
     })
     .filter((t): t is AiCliToolConfig => Boolean(t));
   return tools.length > 0 ? tools : DEFAULT_CONFIG.ai_cli_tools;
+}
+
+function normalizePathString(value: unknown, fallback: string): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || fallback;
 }
 
 function loadConfigSync(): AicwVideoConfig {
@@ -201,6 +210,11 @@ function loadConfigSync(): AicwVideoConfig {
         ...(parsed.renderDefaults ?? {}),
       },
       ai_cli_tools: normalizeAiCliTools((parsed as { ai_cli_tools?: unknown }).ai_cli_tools),
+      illustrationPromptTemplatePath: normalizePathString(
+        (parsed as { illustrationPromptTemplatePath?: unknown; illustration_prompt_template_path?: unknown }).illustrationPromptTemplatePath ??
+          (parsed as { illustration_prompt_template_path?: unknown }).illustration_prompt_template_path,
+        DEFAULT_CONFIG.illustrationPromptTemplatePath,
+      ),
     };
   } catch {
     return DEFAULT_CONFIG;

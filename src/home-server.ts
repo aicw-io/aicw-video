@@ -1,7 +1,7 @@
 import { createServer, type Server, type ServerResponse, type IncomingMessage } from "node:http";
 import { spawn } from "node:child_process";
-import { existsSync, statSync, createReadStream, createWriteStream, readFileSync } from "node:fs";
-import { readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
+import { existsSync, statSync, createReadStream, createWriteStream, readFileSync, type Dirent } from "node:fs";
+import { copyFile, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -149,6 +149,25 @@ export async function startHomeServer(opts: { port?: number } = {}): Promise<Hom
           const projects = await scanProjects();
           const project = await loadProjectV2(nextPath);
           return json(res, 200, { ok: true, slug: nextSlug, projects, project });
+        } catch (e) {
+          return json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
+      if (req.method === "POST" && pathname.startsWith("/api/project-new-version/")) {
+        const slug = pathname.slice("/api/project-new-version/".length);
+        const projectPath = projectPathForSlug(slug);
+        if (!projectPath) return json(res, 400, { error: "bad project slug" });
+        if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+          return json(res, 404, { error: "project not found" });
+        }
+        let parsed: { name?: string };
+        try { parsed = await readJsonBody<{ name?: string }>(req); } catch { return json(res, 400, { error: "bad JSON" }); }
+        try {
+          const result = await createProjectVersionFromSources(projectPath, parsed.name);
+          const projects = await scanProjects();
+          const project = await loadProjectV2(result.path);
+          return json(res, 200, { ok: true, ...result, projects, project });
         } catch (e) {
           return json(res, 500, { error: e instanceof Error ? e.message : String(e) });
         }
@@ -886,6 +905,7 @@ function renderHomeHtml(args: {
   </button>
   <div class="project-card-menu" hidden role="menu">
     <button class="project-card-rename" type="button" role="menuitem">Rename project…</button>
+    <button class="project-card-new-version" type="button" role="menuitem">Start new version…</button>
     ${archiveAction}
   </div>
 </article>`;
@@ -1440,6 +1460,10 @@ body.drawer-open .drawer{transform:translateX(0)}
             <button id="proj-add-files" type="button" role="menuitem">
               <span class="pm-label">Add files…</span>
               <span class="pm-hint">drop more videos / audio into _sources/</span>
+            </button>
+            <button id="proj-new-version" type="button" role="menuitem">
+              <span class="pm-label">Start new version…</span>
+              <span class="pm-hint">same source media, empty clips and renders</span>
             </button>
             <button id="v2-describe-go" type="button" role="menuitem">
               <span class="pm-label">Describe all video files</span>
@@ -2036,6 +2060,22 @@ async function unarchiveProjectBySlug(slug){
   return data;
 }
 
+async function startProjectNewVersion(slug){
+  var r = await fetch('/api/project-new-version/' + encodeURIComponent(slug), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  var data = await r.json().catch(function(){ return {}; });
+  if(!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
+  if(data.projects) PROJECTS = data.projects;
+  return data;
+}
+
+function confirmProjectNewVersion(title){
+  return confirm('Start a new version of "' + title + '"?\\n\\nThis creates a separate project with the same source media files only. Existing clips, renders, generated illustrations, and tutorials stay unchanged in the current project.');
+}
+
 function startInlineTitleEdit(display, current, onSave, small){
   if(!display || display.dataset.editing === '1') return;
   display.dataset.editing = '1';
@@ -2116,6 +2156,25 @@ function startInlineTitleEdit(display, current, onSave, small){
         await archiveProjectBySlug(slugD);
         window.location.reload();
       } catch(e){ alert('Archive failed: ' + e.message); }
+      return;
+    }
+    var newVersionBtn = ev.target.closest && ev.target.closest('.project-card-new-version');
+    if(newVersionBtn){
+      ev.preventDefault();
+      ev.stopPropagation();
+      var tileV = newVersionBtn.closest('.project-tile');
+      var slugV = tileV.dataset.slug;
+      var titleV = tileV.dataset.title || slugV;
+      if(!confirmProjectNewVersion(titleV)) return;
+      newVersionBtn.disabled = true;
+      try {
+        var versionData = await startProjectNewVersion(slugV);
+        if(versionData.slug) window.location.hash = '#/project/' + encodeURIComponent(versionData.slug);
+        window.location.reload();
+      } catch(e){
+        alert('Start new version failed: ' + e.message);
+        newVersionBtn.disabled = false;
+      }
       return;
     }
     var unarchiveBtn = ev.target.closest && ev.target.closest('.project-card-unarchive');
@@ -2652,6 +2711,22 @@ function renderProjectV2(p){
         renderProjectV2(data.project);
       }
     });
+  });
+  var newVersionProjectBtn = document.getElementById('proj-new-version');
+  if(newVersionProjectBtn) newVersionProjectBtn.addEventListener('click', async function(){
+    var slug = document.getElementById('view-project-v2').dataset.slug;
+    var title = document.getElementById('v2-title').textContent.trim() || slug;
+    if(!confirmProjectNewVersion(title)) return;
+    newVersionProjectBtn.disabled = true;
+    try {
+      var data = await startProjectNewVersion(slug);
+      if(data.slug) window.location.hash = '#/project/' + encodeURIComponent(data.slug);
+      else if(data.project) renderProjectV2(data.project);
+    } catch(e){
+      alert('Start new version failed: ' + e.message);
+    } finally {
+      newVersionProjectBtn.disabled = false;
+    }
   });
   var archiveProjectBtn = document.getElementById('proj-archive');
   if(archiveProjectBtn) archiveProjectBtn.addEventListener('click', async function(){
@@ -3326,6 +3401,69 @@ async function deleteProjectRenderedClip(projectPath: string, relativePath: stri
       if (path.basename(targetPath) === renderDirName) await rm(latest, { force: true });
     } catch { /* best effort */ }
   }
+}
+
+async function createProjectVersionFromSources(
+  projectPath: string,
+  requestedName?: string,
+): Promise<{ slug: string; path: string; title: string; sourceCount: number }> {
+  const project = await loadProjectV2(projectPath);
+  if (!project) throw new Error("not a v2 project");
+  const sourceFiles = [...project.sourceVideos, ...project.sourceAudios];
+  if (sourceFiles.length === 0) throw new Error("project has no source files to copy");
+
+  const title = requestedName?.trim() || await nextProjectVersionTitle(project.meta.title || project.slug);
+  const slug = uniqueSlugIn(projectsRoot(), projectNameToSlug(title));
+  const nextRoot = await initProjectV2(slug, {
+    title,
+    autoMatchAudio: project.meta.autoMatchAudio,
+    aiSceneAnalysis: project.meta.aiSceneAnalysis === true,
+  });
+
+  if (project.meta.visualContext?.trim()) {
+    const nextMeta = await readProjectMeta(nextRoot);
+    if (nextMeta) {
+      nextMeta.visualContext = project.meta.visualContext.trim();
+      await writeProjectMeta(nextRoot, nextMeta);
+    }
+  }
+
+  for (const source of sourceFiles) {
+    const dst = await sourceFileTarget(nextRoot, source.originalName);
+    await copyFile(source.sourcePath, dst);
+  }
+
+  return { slug, path: nextRoot, title, sourceCount: sourceFiles.length };
+}
+
+async function nextProjectVersionTitle(currentTitle: string): Promise<string> {
+  const base = stripProjectVersionSuffix(currentTitle || "Project");
+  let maxVersion = 1;
+  let entries: Dirent[] = [];
+  try {
+    entries = await readdir(projectsRoot(), { withFileTypes: true });
+  } catch {
+    return `${base} (version 2)`;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const meta = await readProjectMeta(path.join(projectsRoot(), entry.name));
+    if (!meta) continue;
+    if (stripProjectVersionSuffix(meta.title).toLowerCase() !== base.toLowerCase()) continue;
+    maxVersion = Math.max(maxVersion, projectTitleVersion(meta.title));
+  }
+  return `${base} (version ${maxVersion + 1})`;
+}
+
+function stripProjectVersionSuffix(title: string): string {
+  const stripped = String(title || "").replace(/\s+\(version\s+\d+\)\s*$/i, "").trim();
+  return stripped || "Project";
+}
+
+function projectTitleVersion(title: string): number {
+  const match = String(title || "").match(/\s+\(version\s+(\d+)\)\s*$/i);
+  const n = match ? Math.round(Number(match[1])) : 1;
+  return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
 function isSafePathSegment(segment: string): boolean {

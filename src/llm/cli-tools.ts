@@ -132,7 +132,7 @@ function normalizeRuntimeTool(tool: AiCliToolConfig): RuntimeTool | null {
           : name);
   return {
     name: normalizedName,
-    label: labelForTool(normalizedName),
+    label: labelForTool(normalizedName, tool.model),
     command,
     args: tool.args ?? [],
     model: tool.model,
@@ -157,17 +157,18 @@ function isToolAvailable(tool: RuntimeTool): boolean {
   return ok;
 }
 
-function labelForTool(name: string): string {
+function labelForTool(name: string, model?: string): string {
+  const modelSuffix = model ? ` (${model})` : "";
   switch (name) {
     case "claude":
     case "claude-code":
       return "Claude Code CLI";
     case "codex":
-      return "Codex CLI";
+      return `Codex CLI${modelSuffix}`;
     case "ollama":
-      return "Ollama CLI";
+      return `Ollama CLI${modelSuffix}`;
     default:
-      return `${name} CLI`;
+      return `${name} CLI${modelSuffix}`;
   }
 }
 
@@ -263,9 +264,21 @@ class OllamaCliProvider implements LLMProvider {
     const model = this.tool.model || "gemma4";
     const prompt = buildJsonPrompt(args, []);
     const { stdout, stderr, code } = await runCli(this.tool.command, ["run", model, ...this.tool.args], prompt, args.timeoutMs);
-    if (code !== 0) throw new Error(`ollama run ${model} exited ${code}${stderr.trim() ? `: ${stderr.trim()}` : ""}`);
+    if (code !== 0) throw new Error(ollamaFailureMessage(model, code, stderr));
     return { raw: stdout, parsed: extractJson<T>(stdout, this.name) };
   }
+}
+
+function ollamaFailureMessage(model: string, code: number, stderr: string): string {
+  const detail = stderr.trim();
+  const setup = `Install/start Ollama, then run: ollama pull ${model}`;
+  if (/connection refused|could not connect|no such host|server/i.test(detail)) {
+    return `ollama run ${model} exited ${code}: Ollama is not reachable. Run "ollama serve" or open the Ollama app. ${setup}`;
+  }
+  if (/not found|pull model manifest|model .* does not exist|file does not exist/i.test(detail)) {
+    return `ollama run ${model} exited ${code}: model is not installed. ${setup}`;
+  }
+  return `ollama run ${model} exited ${code}${detail ? `: ${detail}` : ""}. ${setup}`;
 }
 
 class GenericCliProvider implements LLMProvider {

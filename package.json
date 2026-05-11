@@ -18,6 +18,7 @@
   "files": [
     "dist/",
     "skills/",
+    "config/",
     "config.json",
     "docs/img/",
     "docs/release/",
@@ -57,6 +58,8 @@
     "@tensorflow/tfjs-converter": "4.22.0",
     "@tensorflow/tfjs-core": "4.22.0",
     "@vladmandic/human": "^3.3.6",
+    "gsap": "^3.15.0",
+    "hyperframes": "^0.5.6",
     "node-addon-api": "^8.5.0",
     "node-gyp": "^12.3.0",
     "sharp": "^0.34.5",
