@@ -18,10 +18,11 @@ video interviews into captioned, privacy-aware social clips.
 
 ## Features
 
-- **Auto-matches separately recorded audio** Detects, aligns, and syncs external audio tracks to the parent video.
-- **Auto-generates captions** Transcribes speech locally, previews captions, and renders them into the final video.
+- **Auto-match and sync separate audio tracks** Detects, aligns, and syncs external audio tracks
+- **Auto-generate captions** Transcribes speech locally, previews captions, and renders them into the final video.
 - **Protects faces** Detects face regions locally, then blurs them or replaces them with emoji overlays.
 - **Protects voices** Replaces original speaking audio with computer-generated voice-over.
+- **Generates dynamic side illustrations** - generates side illustrations (half screen or replace whole video)
 - **Suggests short clip moments** Uses AI scene analysis to find strong ranges for social clips.
 - **Exports social formats** Renders TikTok, Instagram Reels, YouTube Shorts, LinkedIn, Instagram feed, and YouTube landscape MP4s.
 - **Live preview for every option** Review ranges, captions, crop, privacy, voice-over, and format settings before rendering.
@@ -35,10 +36,14 @@ video interviews into captioned, privacy-aware social clips.
 ![AICW Video Screenshot 1](docs/img/aicw-video-screenshot-1.png)
 ![AICW Video Screenshot 2](docs/img/aicw-video-screenshot-2.png)
 
+![AICW Video side illustrations](docs/img/aicw-video-side-illustration.gif)
+
 
 **Video Demo:**
 
 https://github.com/user-attachments/assets/0044971a-9da1-4b01-97d3-a0329eb3157f
+
+https://github.com/user-attachments/assets/82c7be62-4bdb-40a0-93bb-76aa98c84e29
 
 ## Requirements
 
@@ -221,18 +226,23 @@ AICW Video Ollama adapter accepts image frames.
 ```bash
 brew install ollama
 ollama serve
-ollama pull qwen3-vl:8b
+ollama pull gemma4
+ollama pull qwen3.6
 ```
 
-`qwen3-vl` is a vision-language model in Ollama:
-<https://ollama.com/library/qwen3-vl>. For smaller machines, use a smaller tag
-such as `qwen3-vl:4b` or `qwen3-vl:2b`. Then edit `config.json` if you want
-Ollama to be the local text fallback:
+By default, AICW Video tries local Ollama text fallback in this order after
+Claude Code and Codex are unavailable or fail:
+
+1. `gemma4`
+2. `qwen3.6`
+
+Then edit `config.json` if you want Ollama to be the only local text fallback:
 
 ```json
 {
   "ai_cli_tools": [
-    { "name": "ollama", "command": "ollama", "model": "qwen3-vl:8b", "supports_images": false }
+    { "name": "ollama", "command": "ollama", "model": "gemma4", "supports_images": false },
+    { "name": "ollama", "command": "ollama", "model": "qwen3.6", "supports_images": false }
   ]
 }
 ```

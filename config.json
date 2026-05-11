@@ -8,10 +8,12 @@
   "visualSampleWithoutAudioIntervalMs": 4000,
   "visualSampleImageMaxLongEdge": 512,
   "visualAiMaxFramesPerCall": 12,
+  "illustrationPromptTemplatePath": "config/illustration-prompt-template.md",
   "ai_cli_tools": [
     { "name": "claude-code", "command": "claude", "supports_images": true },
     { "name": "codex", "command": "codex", "supports_images": true },
-    { "name": "ollama", "command": "ollama", "model": "gemma4", "supports_images": false }
+    { "name": "ollama", "command": "ollama", "model": "gemma4", "supports_images": false },
+    { "name": "ollama", "command": "ollama", "model": "qwen3.6", "supports_images": false }
   ],
   "renderDefaults": {
     "caption_style": "bold-white-bottom",
