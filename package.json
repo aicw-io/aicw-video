@@ -1,6 +1,6 @@
 {
   "name": "aicw-video",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "AICW Video is open-source toolkit with a CLI, MCP server, and web hub for turning videos into short clips for TikTok, Instagram, YouTube Shorts and other short video platforms.",
   "type": "module",
   "bin": {
